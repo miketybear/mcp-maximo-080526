@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.example
+.agents
+npm-debug.log
+Dockerfile
+docker-compose*
+nginx.conf
+DEPLOYMENT_GUIDE.md
+adding_tools_guide.md
+oas.json

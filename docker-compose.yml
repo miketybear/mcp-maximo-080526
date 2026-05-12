@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  maximo-mcp:
+    build: .
+    container_name: maximo-mcp-server
+    restart: unless-stopped
+    ports:
+      # We bind to loopback (127.0.0.1) so that the port is not exposed to the public internet directly.
+      # Only Nginx running on the host machine will be able to reverse-proxy to this container.
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    environment:
+      - PORT=3000

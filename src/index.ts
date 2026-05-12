@@ -11,11 +11,42 @@ const server = new McpServer(
 
 registerAllTools(server);
 
+// Authentication middleware for Bearer Token
+const authMiddleware: express.RequestHandler = (req, res, next) => {
+  const expectedApiKey = config.mcpApiKey;
+  
+  // If no MCP_API_KEY is configured on the server, skip verification (development mode)
+  if (!expectedApiKey) {
+    next();
+    return;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    res.status(401).json({
+      error: "Unauthorized",
+      message: "Missing or invalid Authorization header. Expected Bearer Token."
+    });
+    return;
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (token !== expectedApiKey) {
+    res.status(401).json({
+      error: "Unauthorized",
+      message: "Invalid API Key."
+    });
+    return;
+  }
+
+  next();
+};
+
 // Streamable HTTP transport (stateless mode)
   const app = express();
   app.use(express.json());
 
-  app.post("/mcp", async (req, res) => {
+  app.post("/mcp", authMiddleware, async (req, res) => {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, 
     });
