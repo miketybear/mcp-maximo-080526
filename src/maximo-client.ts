@@ -67,18 +67,29 @@ export const maximoClient = {
     // Default select attributes as requested
     params["oslc.select"] = WO_SELECT_FIELDS;
 
-    const raw = await this.fetchMaximo('/api/os/mxwodetail', params);
+    const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
     return WorkOrderCollectionSchema.parse(raw);
   },
 
-  async getWorkOrder(wonum: string): Promise<WorkOrderCollection> {
+  async getWorkOrder(wonum: string, includeLabor?: boolean, includeMaterial?: boolean, includeTasks?: boolean): Promise<WorkOrderCollection> {
+    let selectFields = WO_SELECT_FIELDS_DETAIL;
+    if (includeLabor) {
+      selectFields += ",wplabor{laborcode,craft,skilllevel,regularhours,quantity,linecost}";
+    }
+    if (includeMaterial) {
+      selectFields += ",wpmaterial{itemnum,itemqty,storeloc,description,unitcost,linecost}";
+    }
+    if (includeTasks) {
+      selectFields += ",woactivity{taskid,description,status,location,estdur}";
+    }
+
     // Fetch exact match by wonum
     const params = {
       "oslc.where": `wonum="${wonum}"`,
-      "oslc.select": WO_SELECT_FIELDS_DETAIL,
+      "oslc.select": selectFields,
     };
 
-    const raw = await this.fetchMaximo('/api/os/mxwodetail', params);
+    const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
     return WorkOrderCollectionSchema.parse(raw);
   }
 };

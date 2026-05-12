@@ -11,11 +11,14 @@ export function register(server: McpServer) {
     description: "Fetch detailed information for a specific Maximo Work Order by its wonum.",
     inputSchema: {
       wonum: z.string().describe("The exact Work Order number"),
+      includeLabor: z.boolean().optional().describe("Set to true to include labor or craft details"),
+      includeMaterial: z.boolean().optional().describe("Set to true to include materials or spare parts details"),
+      includeTasks: z.boolean().optional().describe("Set to true to include Work order Tasks details"),
     },
     annotations: { readOnlyHint: true },
-  }, async ({ wonum }) => {
+  }, async ({ wonum, includeLabor, includeMaterial, includeTasks }) => {
     try {
-      const results = await maximoClient.getWorkOrder(wonum);
+      const results = await maximoClient.getWorkOrder(wonum, includeLabor, includeMaterial, includeTasks);
 
       // Since oslc.where returns a collection (even for 1 item), we can pull out the member if it exists
       const member = results.member?.[0] ?? results;

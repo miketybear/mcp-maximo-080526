@@ -33,6 +33,41 @@ export type SearchWorkOrdersInput = z.infer<z.ZodObject<typeof SearchWorkOrdersI
 // Work Order domain schemas
 // ─────────────────────────────────────────────────
 
+/** Zod schema for the WPLabor nested object. */
+export const WPLaborSchema = z.object({
+  laborcode: z.string().optional(),
+  craft: z.string().optional(),
+  skilllevel: z.string().optional(),
+  regularhours: z.number().optional(),
+  quantity: z.number().optional(),
+  linecost: z.number().optional(),
+}).loose();
+
+export type WPLabor = z.infer<typeof WPLaborSchema>;
+
+/** Zod schema for the WPMaterial nested object. */
+export const WPMaterialSchema = z.object({
+  itemnum: z.string().optional(),
+  itemqty: z.number().optional(),
+  storeloc: z.string().optional(),
+  description: z.string().optional(),
+  unitcost: z.number().optional(),
+  linecost: z.number().optional(),
+}).loose();
+
+export type WPMaterial = z.infer<typeof WPMaterialSchema>;
+
+/** Zod schema for the WOACTIVITY nested object (Tasks). */
+export const WOActivitySchema = z.object({
+  taskid: z.union([z.number(), z.string()]).optional(),
+  description: z.string().optional(),
+  status: z.string().optional(),
+  location: z.string().optional(),
+  estdur: z.number().optional(),
+}).loose();
+
+export type WOActivity = z.infer<typeof WOActivitySchema>;
+
 /** Zod schema for a single Maximo Work Order record (the fields we select). */
 export const WorkOrderSchema = z.object({
   wonum: z.string(),
@@ -52,6 +87,9 @@ export const WorkOrderSchema = z.object({
   wopriority: z.number().optional(),
   plusgsafetycrit: z.union([z.number(), z.boolean()]).optional(),
   plusgcomcrit: z.union([z.number(), z.boolean()]).optional(),
+  wplabor: z.array(WPLaborSchema).optional(),
+  wpmaterial: z.array(WPMaterialSchema).optional(),
+  woactivity: z.array(WOActivitySchema).optional(),
 }).loose();
 
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;
