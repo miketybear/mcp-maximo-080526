@@ -12,3 +12,7 @@ yarn-error.log*
 
 # OS
 .DS_Store
+.agents
+adding_tools_guide.md
+DEPLOYMENT_GUIDE.md
+oas.json
