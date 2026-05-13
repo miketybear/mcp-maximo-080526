@@ -18,6 +18,6 @@ export const config = {
   apiKey: API_KEY || "",
   /** Base URL with trailing slash removed */
   baseUrl: MAXIMO_URL?.replace(/\/$/, "") || "",
-  port: Number(process.env.PORT) || 3000,
+  port: Number(process.env.PORT) || 3030,
   mcpApiKey: MCP_API_KEY || "",
 } as const;

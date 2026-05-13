@@ -84,7 +84,7 @@ API_KEY=your-secret-maximo-api-key-here
 MCP_API_KEY=your-highly-secure-mcp-token-here
 
 # Server PORT (bound internally to container)
-PORT=3000
+PORT=3030
 ```
 
 ---
@@ -104,10 +104,10 @@ docker compose ps
 docker compose logs -f
 ```
 
-You should see logs indicating the MCP server is listening on port `3000`:
+You should see logs indicating the MCP server is listening on port `3030`:
 ```text
-MCP Server running on http://localhost:3000/mcp
-Health check available at http://localhost:3000/health
+MCP Server running on http://localhost:3030/mcp
+Health check available at http://localhost:3030/health
 ```
 
 ---

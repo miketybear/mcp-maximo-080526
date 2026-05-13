@@ -35,6 +35,6 @@ COPY --from=builder /app/dist ./dist
 # Run as a non-root user for security
 USER node
 
-EXPOSE 3000
+EXPOSE 3030
 
 CMD ["node", "dist/index.js"]
