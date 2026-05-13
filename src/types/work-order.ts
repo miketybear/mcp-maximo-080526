@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WO_STATUS, WO_DISCIPLINE, WO_WORKTYPE } from "../constants.js";
+import { WO_STATUS, WO_DISCIPLINE, WO_WORKTYPE, WO_PRIORITY } from "../constants.js";
 
 // ─────────────────────────────────────────────────
 // Search input schema (shared between tool and client)
@@ -16,13 +16,16 @@ import { WO_STATUS, WO_DISCIPLINE, WO_WORKTYPE } from "../constants.js";
  */
 export const SearchWorkOrdersInputSchema = {
   wonum: z.string().optional().describe("Work Order number (exact match)"),
-  description: z.string().optional().describe("Partial match on the description"),
+  description: z.string().optional().describe("Partial match on the description of work order or failure in description."),
   status: z.enum(WO_STATUS).optional().describe("Work Order status"),
   siteid: z.string().optional().describe("Site ID (e.g., BD1)"),
-  bdpocdiscipline: z.enum(WO_DISCIPLINE).optional().describe("Discipline code for the work order"),
-  worktype: z.enum(WO_WORKTYPE).optional().describe("Work type of the work order"),
+  bdpocdiscipline: z.enum(WO_DISCIPLINE).optional().describe("Discipline code/team for the work order, e.g. mechanical, electrical, rotating, etc."),
+  worktype: z.enum(WO_WORKTYPE).optional().describe("Work type of the work order, PM is planned maintenance and CM is corrective maintenance"),
+  wopriority: z.enum(WO_PRIORITY).optional().describe("Work Order priority, with 4 being the highest priority, e.g. 1=Low, 2=Medium, 3=High, 4=Urgent"),
   schedFinishAfter: z.string().optional().describe("Return WOs with schedfinish on or after this ISO-8601 date (e.g. 2026-05-01T00:00:00+07:00). Use this together with schedFinishBefore to filter by a date range."),
   schedFinishBefore: z.string().optional().describe("Return WOs with schedfinish strictly before this ISO-8601 date (e.g. 2026-06-01T00:00:00+07:00). Use this together with schedFinishAfter to filter by a date range."),
+  plusgsafetycrit: z.boolean().optional().describe("Safety Critical Element (SCE) flag (true/false), true if user search for SCE WO"),
+  plusgcomcrit: z.boolean().optional().describe("Production Critical Element (PCE) flag (true/false), true if user search for PCE WO"),
   limit: z.number().int().min(1).max(100).default(10).describe("Maximum number of records to return"),
 } as const;
 
@@ -72,6 +75,7 @@ export type WOActivity = z.infer<typeof WOActivitySchema>;
 export const WorkOrderSchema = z.object({
   wonum: z.string(),
   description: z.string().optional(),
+  description_longdescription: z.string().optional(),
   status: z.string().optional(),
   siteid: z.string().optional(),
   reportdate: z.string().optional(),

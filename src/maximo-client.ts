@@ -3,10 +3,10 @@ import type { SearchWorkOrdersInput, WorkOrderCollection } from "./types/index.j
 import { WorkOrderCollectionSchema } from "./types/index.js";
 
 /** Shared list of selected work order attributes for OSLC queries. */
-const WO_SELECT_FIELDS = "wonum,description,status,reportdate,assetnum,location,bdpocdiscipline,worktype,schedstart,schedfinish,actstart,actfinish,estdur,wopriority,plusgsafetycrit,plusgcomcrit";
+const WO_SELECT_FIELDS = "wonum,description,status,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
 
 /** Extended select list that includes siteid (used by getWorkOrder). */
-const WO_SELECT_FIELDS_DETAIL = `${WO_SELECT_FIELDS},siteid`;
+const WO_SELECT_FIELDS_DETAIL = `${WO_SELECT_FIELDS},reportdate,assetnum,schedstart,schedfinish,actstart,actfinish,estdur,wopriority,siteid,description_longdescription`;
 
 export const maximoClient = {
   async fetchMaximo(endpoint: string, params: Record<string, string | number | undefined> = {}) {
@@ -27,6 +27,7 @@ export const maximoClient = {
     const response = await fetch(url.toString(), {
       headers: {
         'apikey': config.apiKey,
+        'Content-Type': 'application/json',
       }
     });
 
@@ -41,7 +42,8 @@ export const maximoClient = {
   async searchWorkOrders(input: SearchWorkOrdersInput): Promise<WorkOrderCollection> {
     const {
       wonum, description, status, siteid, bdpocdiscipline,
-      worktype, schedFinishAfter, schedFinishBefore, limit = 10,
+      worktype, wopriority, schedFinishAfter, schedFinishBefore, limit = 10,
+      plusgsafetycrit, plusgcomcrit,
     } = input;
 
     // Build the oslc.where string based on provided fields
@@ -53,8 +55,11 @@ export const maximoClient = {
     if (siteid) whereConditions.push(`siteid="${siteid}"`);
     if (bdpocdiscipline) whereConditions.push(`bdpocdiscipline="${bdpocdiscipline}"`);
     if (worktype) whereConditions.push(`worktype="${worktype}"`);
+    if (wopriority) whereConditions.push(`wopriority=${wopriority}`);
     if (schedFinishAfter) whereConditions.push(`schedfinish>="${schedFinishAfter}"`);
     if (schedFinishBefore) whereConditions.push(`schedfinish<"${schedFinishBefore}"`);
+    if (plusgsafetycrit !== undefined) whereConditions.push(`plusgsafetycrit=${plusgsafetycrit ? "1" : "0"}`);
+    if (plusgcomcrit !== undefined) whereConditions.push(`plusgcomcrit=${plusgcomcrit ? "1" : "0"}`);
 
     const params: Record<string, string | number> = {
       "oslc.pageSize": limit

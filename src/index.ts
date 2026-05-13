@@ -6,7 +6,7 @@ import { registerAllTools } from "./tools/index.js";
 
 const server = new McpServer(
   { name: "maximo-mcp-server", version: "0.1.0" },
-  { instructions: "Use the provided tools to interact with the Maximo REST API. Prefer searching for work orders to get the exact wonum before calling get_work_order." },
+  { instructions: "Use the provided tools to interact with the Maximo REST API. Prefer searching for work orders to get the exact wonum before calling get_work_order. Always summarize data from the description_longdescription field before presenting/outputting it to the user." },
 );
 
 registerAllTools(server);
