@@ -14,9 +14,9 @@ import { WO_STATUS, WO_DISCIPLINE, WO_WORKTYPE, WO_PRIORITY } from "../constants
  * into ISO-8601 strings and passes them as schedStartAfter / schedStartBefore.
  * The client builds the oslc.where clause from these.
  */
+
 export const SearchWorkOrdersInputSchema = {
-  wonum: z.string().optional().describe("Work Order number (exact match)"),
-  description: z.string().optional().describe("Partial match on the description of work order or failure in description."),
+  location: z.string().optional().describe("Tag number for maintenance task of a Work Order, e.g. HT-PM-4415C"),
   status: z.enum(WO_STATUS).optional().describe("Work Order status"),
   siteid: z.string().optional().describe("Site ID (e.g., BD1)"),
   bdpocdiscipline: z.enum(WO_DISCIPLINE).optional().describe("Discipline code/team for the work order, e.g. mechanical, electrical, rotating, etc."),
@@ -26,7 +26,8 @@ export const SearchWorkOrdersInputSchema = {
   schedFinishBefore: z.string().optional().describe("Return WOs with schedfinish strictly before this ISO-8601 date (e.g. 2026-06-01T00:00:00+07:00). Use this together with schedFinishAfter to filter by a date range."),
   plusgsafetycrit: z.boolean().optional().describe("Safety Critical Element (SCE) flag (true/false), true if user search for SCE WO"),
   plusgcomcrit: z.boolean().optional().describe("Production Critical Element (PCE) flag (true/false), true if user search for PCE WO"),
-  limit: z.number().int().min(1).max(100).default(10).describe("Maximum number of records to return"),
+  woclass: z.string().optional().describe("Work Order class (e.g., WORKORDER). Defaults to WORKORDER to exclude activity tasks."),
+  limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
 } as const;
 
 /** Inferred type for the search input params. */
@@ -77,6 +78,7 @@ export const WorkOrderSchema = z.object({
   description: z.string().optional(),
   description_longdescription: z.string().optional(),
   status: z.string().optional(),
+  woclass: z.string().optional(),
   siteid: z.string().optional(),
   reportdate: z.string().optional(),
   assetnum: z.string().optional(),

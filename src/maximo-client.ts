@@ -3,17 +3,18 @@ import type { SearchWorkOrdersInput, WorkOrderCollection } from "./types/index.j
 import { WorkOrderCollectionSchema } from "./types/index.js";
 
 /** Shared list of selected work order attributes for OSLC queries. */
-const WO_SELECT_FIELDS = "wonum,description,status,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
+const WO_SELECT_FIELDS = "wonum,description,status,woclass,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
 
-/** Extended select list that includes siteid (used by getWorkOrder). */
+/** Extended select list (used by getWorkOrder). */
 const WO_SELECT_FIELDS_DETAIL = `${WO_SELECT_FIELDS},reportdate,assetnum,schedstart,schedfinish,actstart,actfinish,estdur,wopriority,siteid,description_longdescription`;
 
 export const maximoClient = {
   async fetchMaximo(endpoint: string, params: Record<string, string | number | undefined> = {}) {
     const url = new URL(`${config.baseUrl}${endpoint}`);
 
-    // Always append lean=1 for NextGen API per best practices
+    // Always append lean=1 and ignorecollectionref=1 per best practices
     url.searchParams.append("lean", "1");
+    url.searchParams.append("ignorecollectionref", "1");
 
     // Append other params
     Object.entries(params).forEach(([key, value]) => {
@@ -41,16 +42,15 @@ export const maximoClient = {
 
   async searchWorkOrders(input: SearchWorkOrdersInput): Promise<WorkOrderCollection> {
     const {
-      wonum, description, status, siteid, bdpocdiscipline,
+      location, status, siteid, bdpocdiscipline,
       worktype, wopriority, schedFinishAfter, schedFinishBefore, limit = 10,
-      plusgsafetycrit, plusgcomcrit,
+      plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER",
     } = input;
 
     // Build the oslc.where string based on provided fields
     const whereConditions: string[] = [];
 
-    if (wonum) whereConditions.push(`wonum="${wonum}"`);
-    if (description) whereConditions.push(`description="%${description}%"`);
+    if (location) whereConditions.push(`location="%${location}%"`);
     if (status) whereConditions.push(`status="${status}"`);
     if (siteid) whereConditions.push(`siteid="${siteid}"`);
     if (bdpocdiscipline) whereConditions.push(`bdpocdiscipline="${bdpocdiscipline}"`);
@@ -60,6 +60,7 @@ export const maximoClient = {
     if (schedFinishBefore) whereConditions.push(`schedfinish<"${schedFinishBefore}"`);
     if (plusgsafetycrit !== undefined) whereConditions.push(`plusgsafetycrit=${plusgsafetycrit ? "1" : "0"}`);
     if (plusgcomcrit !== undefined) whereConditions.push(`plusgcomcrit=${plusgcomcrit ? "1" : "0"}`);
+    if (woclass) whereConditions.push(`woclass="${woclass}"`);
 
     const params: Record<string, string | number> = {
       "oslc.pageSize": limit
