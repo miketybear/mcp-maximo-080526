@@ -72,6 +72,16 @@ export const WOActivitySchema = z.object({
 
 export type WOActivity = z.infer<typeof WOActivitySchema>;
 
+/** Zod schema for the MATUSETRANS nested object (Material usages). */
+export const MatUseTransSchema = z.object({
+  itemnum: z.string().optional(),
+  description: z.string().optional(),
+  issuetype: z.string().optional(),
+  positivequantity: z.number().optional(),
+}).loose();
+
+export type MatUseTrans = z.infer<typeof MatUseTransSchema>;
+
 /** Zod schema for a single Maximo Work Order record (the fields we select). */
 export const WorkOrderSchema = z.object({
   wonum: z.string(),
@@ -96,6 +106,7 @@ export const WorkOrderSchema = z.object({
   wplabor: z.array(WPLaborSchema).optional(),
   wpmaterial: z.array(WPMaterialSchema).optional(),
   woactivity: z.array(WOActivitySchema).optional(),
+  matusetrans: z.array(MatUseTransSchema).optional(),
 }).loose();
 
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;

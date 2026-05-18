@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { register as registerSearchWorkOrders } from "./search-work-orders.js";
 import { register as registerGetWorkOrder } from "./get-work-order.js";
+import { register as registerAnalyzeWorkOrdersHistory } from "./analyze-work-orders-history-by-tag.js";
 
 /**
  * Register all tools on the given MCP server instance.
@@ -13,6 +14,7 @@ import { register as registerGetWorkOrder } from "./get-work-order.js";
 export function registerAllTools(server: McpServer): void {
   registerSearchWorkOrders(server);
   registerGetWorkOrder(server);
+  registerAnalyzeWorkOrdersHistory(server);
 
-  console.log("[registry] Registered 2 tool(s): search_work_orders, get_work_order");
+  console.log("[registry] Registered 3 tool(s): search_work_orders, get_work_order, analyze_work_orders_history_by_tag");
 }

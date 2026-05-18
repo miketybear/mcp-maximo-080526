@@ -97,5 +97,16 @@ export const maximoClient = {
 
     const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
     return WorkOrderCollectionSchema.parse(raw);
+  },
+
+  async searchHistoryWOByTag(location: string, limit: number = 10): Promise<WorkOrderCollection> {
+    const params = {
+      "oslc.where": `location="%${location}%" and woclass="WORKORDER" and status in ["COMP","CLOSE"]`,
+      "oslc.select": "wonum,description,matusetrans{itemnum,description,issuetype,positivequantity}",
+      "oslc.pageSize": limit,
+    };
+
+    const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
+    return WorkOrderCollectionSchema.parse(raw);
   }
 };
