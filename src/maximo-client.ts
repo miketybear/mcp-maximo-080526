@@ -1,6 +1,10 @@
 import { config } from "./config.js";
 import type { SearchWorkOrdersInput, WorkOrderCollection } from "./types/index.js";
 import { WorkOrderCollectionSchema } from "./types/index.js";
+import type { SearchPurchaseOrdersInput, PurchaseOrderCollection } from "./types/index.js";
+import { PurchaseOrderCollectionSchema } from "./types/index.js";
+import type { SearchVendorInput, VendorCollection } from "./types/index.js";
+import { VendorCollectionSchema } from "./types/index.js";
 
 /** Shared list of selected work order attributes for OSLC queries. */
 const WO_SELECT_FIELDS = "wonum,description,status,woclass,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
@@ -108,5 +112,76 @@ export const maximoClient = {
 
     const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
     return WorkOrderCollectionSchema.parse(raw);
-  }
+  },
+
+  // ─────────────────────────────────────────────────
+  // Purchase Order methods (mxpodetails)
+  // ─────────────────────────────────────────────────
+
+  /**
+   * Search Purchase Orders by vendor, formno, description, status, techpic, potype.
+   * CAN status is always excluded — never add it to the where clause.
+   */
+  async searchPurchaseOrders(input: SearchPurchaseOrdersInput): Promise<PurchaseOrderCollection> {
+    const { vendor, formno, description, status, techpic, potype, limit = 10 } = input;
+
+    const whereConditions: string[] = [
+      // Always exclude cancelled POs
+      'status!="CAN"',
+    ];
+
+    if (vendor) whereConditions.push(`vendor="%${vendor}%"`);
+    if (formno) whereConditions.push(`formno="${formno}"`);
+    if (description) whereConditions.push(`description="%${description}%"`);
+    if (status) whereConditions.push(`status="${status}"`);
+    if (techpic) whereConditions.push(`techpic="${techpic}"`);
+    if (potype) whereConditions.push(`potype="${potype}"`);
+
+    const params: Record<string, string | number> = {
+      "oslc.where": whereConditions.join(" and "),
+      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid",
+      "oslc.pageSize": limit,
+    };
+
+    const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
+    return PurchaseOrderCollectionSchema.parse(raw);
+  },
+
+  /**
+   * Fetch full Purchase Order detail by PONUM, including line items.
+   */
+  async getPurchaseOrder(ponum: string): Promise<PurchaseOrderCollection> {
+    const params = {
+      "oslc.where": `ponum="${ponum}"`,
+      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid,poline{polinenum,itemnum,description,quantity,unitcost,linecost,storeloc,receivedqty}",
+    };
+
+    const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
+    return PurchaseOrderCollectionSchema.parse(raw);
+  },
+
+  // ─────────────────────────────────────────────────
+  // Vendor methods (mxvendor)
+  // ─────────────────────────────────────────────────
+
+  async searchVendors(input: SearchVendorInput): Promise<VendorCollection> {
+    const { name, limit = 10 } = input;
+
+    const whereConditions: string[] = [
+      'type="V"',
+    ];
+
+    if (name) {
+      whereConditions.push(`name="%${name}%"`);
+    }
+
+    const params: Record<string, string | number> = {
+      "oslc.where": whereConditions.join(" and "),
+      "oslc.select": "company,name,type,orgid",
+      "oslc.pageSize": limit,
+    };
+
+    const raw = await this.fetchMaximo('/api/os/mxvendor', params);
+    return VendorCollectionSchema.parse(raw);
+  },
 };

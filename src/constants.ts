@@ -13,3 +13,12 @@ export const WO_WORKTYPE = ["PM", "CM", "General", "PdM", "Routine"] as const;
 
 /** Work Order priority codes. */
 export const WO_PRIORITY = ["1", "2", "3", "4"] as const;
+
+/**
+ * Known Maximo Purchase Order statuses.
+ * CAN is intentionally excluded — tools must never filter or return CAN POs.
+ */
+export const PO_STATUS = ["WAPPR", "APPR", "INPRG", "WREVCC", "WTECHMGR", "CLOSE"] as const;
+
+/** Purchase Order types. */
+export const PO_TYPE = ["STD", "REL"] as const;

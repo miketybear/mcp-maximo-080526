@@ -6,7 +6,7 @@ This guide describes the step-by-step process of deploying your containerized Ma
 
 ## Prerequisites (Ubuntu Server Setup)
 
-SSH into your Ubuntu server and run the following commands to ensure all system software, Docker, Nginx, and Certbot are installed.
+SSH into your Ubuntu server and run the following commands to ensure all system software, Docker, and Nginx are installed.
 
 ### 1. Update Ubuntu Repository Index
 ```bash
@@ -29,13 +29,10 @@ sudo usermod -aG docker $USER
 # (Log out and log back in for this to take effect)
 ```
 
-### 3. Install Nginx & Certbot
+### 3. Install Nginx
 ```bash
 # Install Nginx
 sudo apt install -y nginx
-
-# Install Certbot and its Nginx integration
-sudo apt install -y certbot python3-certbot-nginx
 
 # Start and enable Nginx
 sudo systemctl enable --now nginx
@@ -114,24 +111,45 @@ Health check available at http://localhost:3030/health
 
 ## Step 4: Configure Nginx & SSL
 
-### 1. Copy the Nginx Configuration
+### 1. Prepare SSL Certificates
+Ensure your custom SSL certificates are placed in a secure directory on the Ubuntu host.
+For example, create a directory for the certificates:
+```bash
+sudo mkdir -p /etc/nginx/ssl
+sudo chmod 700 /etc/nginx/ssl
+```
+Copy your custom certificates into `/etc/nginx/ssl/`:
+- `certificate-2025.pem` (Public certificate)
+- `privatekey-2025.pem` (Private key)
+- `ca-certificate-2025.pem` (Optional: CA Chain / Bundle)
+
+Ensure secure permissions for the private key:
+```bash
+sudo chmod 600 /etc/nginx/ssl/privatekey-2025.pem
+```
+
+### 2. Copy and Adapt the Nginx Configuration
 Copy the provided `nginx.conf` from your project folder into Nginx’s configuration structure:
 ```bash
 sudo cp nginx.conf /etc/nginx/sites-available/mxm-mcp-server
 ```
 
-### 2. Enable the Site
+Open the configuration to verify that the SSL certificate paths match your custom certs:
+```bash
+sudo nano /etc/nginx/sites-available/mxm-mcp-server
+```
+Confirm the following lines point to your uploaded certificates:
+```nginx
+ssl_certificate /etc/nginx/ssl/certificate-2025.pem;
+ssl_certificate_key /etc/nginx/ssl/privatekey-2025.pem;
+ssl_trusted_certificate /etc/nginx/ssl/ca-certificate-2025.pem; # Optional
+```
+
+### 3. Enable the Site
 Create a symbolic link in the `sites-enabled` directory:
 ```bash
 sudo ln -s /etc/nginx/sites-available/mxm-mcp-server /etc/nginx/sites-enabled/
 ```
-
-### 3. Obtain Let's Encrypt SSL Certificate
-Run Certbot to request an SSL certificate. Certbot will verify your domain ownership and automatically inject the standard SSL directives:
-```bash
-sudo certbot --nginx -d mxm-mcp-server.biendongpoc.vn
-```
-*Follow the interactive instructions on the CLI. Once finished, Certbot will update `/etc/nginx/sites-available/mxm-mcp-server` with the paths to the generated certificates.*
 
 ### 4. Verify and Reload Nginx
 Test Nginx for any configuration syntax errors:
@@ -213,10 +231,43 @@ Content-Type: application/json; charset=utf-8
 
 ---
 
-## Step 6: Setup Auto-Renewal for SSL Certificates
+## Step 6: Updating the Server with New Tools (Redeployment)
 
-Let's Encrypt certificates are valid for 90 days. Certbot installs an automated systemd timer to renew certificates. To verify that renewal works:
+When you develop and implement new tools or make updates to the Maximo MCP server, use the following steps to redeploy the server with zero or minimal downtime:
+
+### 1. Sync Updated Project Files
+Copy the modified files from your development machine to the `/var/www/maximo-mcp` directory on the server.
+Typically, you only need to sync the following:
+* `src/` directory (containing your new tools, schemas, client updates, and updated registry index)
+* `package.json` and `package-lock.json` (if you added new npm package dependencies)
+
+### 2. Rebuild and Restart the Container
+Run the Docker Compose command with the `--build` flag. Docker will execute the multi-stage build, compile the new TypeScript tools inside the container, install any new dependencies, and replace the running container:
+
 ```bash
-sudo certbot renew --dry-run
+# Navigate to project directory
+cd /var/www/maximo-mcp
+
+# Build new image and restart the container in the background
+docker compose up -d --build
 ```
-If this completes with no errors, your SSL renewal is fully automated and secure!
+
+### 3. Verify Container Startup
+Check the real-time container logs to verify the TypeScript compilation succeeded and the server is listening:
+```bash
+docker compose logs -f
+```
+You should see output confirming the server registry registered the new tools:
+```text
+[registry] Registered 3 tool(s): search_work_orders, get_work_order, update_work_order_status
+```
+
+### 4. Verify Registered Tools Externally
+Use `curl` on your development machine or the server to query the `tools/list` endpoint using your secure Bearer token. Ensure your new tools appear in the JSON response:
+
+```bash
+curl -i -X POST https://mxm-mcp-server.biendongpoc.vn/mcp \
+  -H "Authorization: Bearer your-highly-secure-mcp-token-here" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+```
