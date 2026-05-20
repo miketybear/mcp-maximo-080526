@@ -1,10 +1,33 @@
 import { config } from "./config.js";
 import type { SearchWorkOrdersInput, WorkOrderCollection } from "./types/index.js";
 import { WorkOrderCollectionSchema } from "./types/index.js";
-import type { SearchPurchaseOrdersInput, PurchaseOrderCollection } from "./types/index.js";
+import type { SearchPurchaseOrdersInput, PurchaseOrderCollection, PurchaseOrder } from "./types/index.js";
 import { PurchaseOrderCollectionSchema } from "./types/index.js";
 import type { SearchVendorInput, VendorCollection } from "./types/index.js";
 import { VendorCollectionSchema } from "./types/index.js";
+
+function filterLatestApprovedRevisions(pos: PurchaseOrder[]): PurchaseOrder[] {
+  const groups: Record<string, PurchaseOrder[]> = {};
+  for (const po of pos) {
+    if (!po.ponum) continue;
+    if (!groups[po.ponum]) {
+      groups[po.ponum] = [];
+    }
+    groups[po.ponum].push(po);
+  }
+
+  const result: PurchaseOrder[] = [];
+  const approvedStatuses = ["APPR", "INPRG", "CLOSE"];
+
+  for (const ponum of Object.keys(groups)) {
+    const revisions = groups[ponum];
+    revisions.sort((a, b) => (b.revisionnum ?? 0) - (a.revisionnum ?? 0));
+    const latestApproved = revisions.find(r => r.status && approvedStatuses.includes(r.status));
+    result.push(latestApproved || revisions[0]);
+  }
+
+  return result;
+}
 
 /** Shared list of selected work order attributes for OSLC queries. */
 const WO_SELECT_FIELDS = "wonum,description,status,woclass,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
@@ -139,12 +162,14 @@ export const maximoClient = {
 
     const params: Record<string, string | number> = {
       "oslc.where": whereConditions.join(" and "),
-      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid",
+      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid",
       "oslc.pageSize": limit,
     };
 
     const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
-    return PurchaseOrderCollectionSchema.parse(raw);
+    const parsed = PurchaseOrderCollectionSchema.parse(raw);
+    parsed.member = filterLatestApprovedRevisions(parsed.member);
+    return parsed;
   },
 
   /**
@@ -153,11 +178,13 @@ export const maximoClient = {
   async getPurchaseOrder(ponum: string): Promise<PurchaseOrderCollection> {
     const params = {
       "oslc.where": `ponum="${ponum}"`,
-      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid,poline{polinenum,itemnum,description,quantity,unitcost,linecost,storeloc,receivedqty}",
+      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid,poline{polinenum,itemnum,description,quantity,unitcost,linecost,storeloc,receivedqty}",
     };
 
     const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
-    return PurchaseOrderCollectionSchema.parse(raw);
+    const parsed = PurchaseOrderCollectionSchema.parse(raw);
+    parsed.member = filterLatestApprovedRevisions(parsed.member);
+    return parsed;
   },
 
   // ─────────────────────────────────────────────────

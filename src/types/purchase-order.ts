@@ -46,6 +46,7 @@ export type POLine = z.infer<typeof POLineSchema>;
 /** Zod schema for a single Maximo Purchase Order record. */
 export const PurchaseOrderSchema = z.object({
   ponum: z.string(),
+  revisionnum: z.number().optional(),
   description: z.string().optional(),
   status: z.string().optional(),
   vendor: z.string().optional(),
