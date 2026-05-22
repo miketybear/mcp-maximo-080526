@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import express from "express";
 import { config } from "./config.js";
 import { registerAllTools } from "./tools/index.js";
+import { buildAuthMiddleware } from "./auth.js";
 
 const server = new McpServer(
   { name: "maximo-mcp-server", version: "0.1.0" },
@@ -11,36 +12,7 @@ const server = new McpServer(
 
 registerAllTools(server);
 
-// Authentication middleware for Bearer Token
-const authMiddleware: express.RequestHandler = (req, res, next) => {
-  const expectedApiKey = config.mcpApiKey;
-  
-  // If no MCP_API_KEY is configured on the server, skip verification (development mode)
-  if (!expectedApiKey) {
-    next();
-    return;
-  }
-
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({
-      error: "Unauthorized",
-      message: "Missing or invalid Authorization header. Expected Bearer Token."
-    });
-    return;
-  }
-
-  const token = authHeader.substring(7).trim();
-  if (token !== expectedApiKey) {
-    res.status(401).json({
-      error: "Unauthorized",
-      message: "Invalid API Key."
-    });
-    return;
-  }
-
-  next();
-};
+const authMiddleware = buildAuthMiddleware();
 
 // Streamable HTTP transport (stateless mode)
   const app = express();
