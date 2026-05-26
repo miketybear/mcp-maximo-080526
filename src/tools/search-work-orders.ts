@@ -15,7 +15,11 @@ import { SearchWorkOrdersInputSchema } from "../types/index.js";
  */
 export function register(server: McpServer) {
   server.registerTool("search_work_orders", {
-    description: "Search Maximo Work Orders (WOs) by various criteria. Returns matching records up to the specified limit. Guidelines: (1) Set 'plusgsafetycrit' (SCE) or 'plusgcomcrit' (PCE) to true if the query asks for SCE/PCE related work orders or assets. (2) woclass defaults to WORKORDER to exclude activity tasks. (3) Status MUST NOT include CAN.",
+    description:
+      "Search specifically for Maximo Work Orders (WOs) by various criteria. Do not use for Purchase Orders (POs) or Vendors. " +
+      "Returns matching records up to the specified limit. Guidelines: (1) Set 'plusgsafetycrit' (SCE) or 'plusgcomcrit' (PCE) " +
+      "to true if the query asks for SCE/PCE related work orders or assets. (2) woclass defaults to WORKORDER to exclude " +
+      "activity tasks. (3) Status MUST NOT include CAN.",
     inputSchema: SearchWorkOrdersInputSchema,
     annotations: { readOnlyHint: true },
   }, async (args) => {

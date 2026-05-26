@@ -7,7 +7,18 @@ import { buildAuthMiddleware } from "./auth.js";
 
 const server = new McpServer(
   { name: "maximo-mcp-server", version: "0.1.0" },
-  { instructions: "Use the provided tools to interact with the Maximo REST API. Prefer searching for work orders to get the exact wonum before calling get_work_order. Always summarize data from the description_longdescription field before presenting/outputting it to the user." },
+  {
+    instructions:
+      "Use the provided tools to interact with the Maximo REST API. " +
+      "The server supports multiple objects: Work Orders, Purchase Orders, and Vendors. " +
+      "1. For Work Orders (WOs): Prefer searching using search_work_orders to find the exact wonum " +
+      "before calling get_work_order. Always summarize data from the description_longdescription " +
+      "field before presenting/outputting it to the user. " +
+      "2. For Purchase Orders (POs): Prefer searching using search_purchase_orders to find the exact " +
+      "ponum before calling get_purchase_order. " +
+      "3. For Vendors/Companies: If searching for POs by a vendor or company name, always search " +
+      "for the vendor code using search_vendor first, then use search_purchase_orders with the vendor code.",
+  },
 );
 
 registerAllTools(server);

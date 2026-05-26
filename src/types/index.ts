@@ -16,12 +16,14 @@ export {
   PurchaseOrderSchema,
   PurchaseOrderCollectionSchema,
   POLineSchema,
+  XbgvpoSummarySchema,
 } from "./purchase-order.js";
 export type {
   SearchPurchaseOrdersInput,
   PurchaseOrder,
   PurchaseOrderCollection,
   POLine,
+  XbgvpoSummary,
 } from "./purchase-order.js";
 
 export {

@@ -16,9 +16,9 @@ export function register(server: McpServer) {
     "search_purchase_orders",
     {
       description:
-        "Search Maximo Purchase Orders (POs) by vendor (company), formno, description, status, techpic, or potype. " +
+        "Search Maximo Purchase Orders (POs) by vendor (company), formno, description, status, techpic, potype, or orderdate range (fromDate, toDate). " +
         "Status MUST NOT include CAN — cancelled POs are always excluded automatically. " +
-        "Returns summary-level fields (no line items). Use get_purchase_order for full detail.",
+        "Returns summary-level fields including expected delivery date (vendeliverydate), but no line items. Use get_purchase_order for full detail.",
       inputSchema: SearchPurchaseOrdersInputSchema,
       annotations: { readOnlyHint: true },
     },

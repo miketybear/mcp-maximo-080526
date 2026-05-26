@@ -12,8 +12,9 @@ export function register(server: McpServer) {
     {
       description:
         "Fetch detailed information for a specific Maximo Purchase Order by its PONUM. " +
-        "Returns header fields (vendor, formno, potype, techpic, orderdate, currency, totalcost) " +
-        "and all PO line items (itemnum, description, quantity, unitcost, linecost, receivedqty).",
+        "Returns header fields (vendor, formno, potype, techpic, orderdate, currency, totalcost, vendeliverydate), " +
+        "nested budget summary (xbgvposummary: budgetcode, description), " +
+        "and all PO line items (itemnum, description, orderqty, unitcost, linecost, receivedqty, budgetcode, linetype).",
       inputSchema: {
         ponum: z.string().describe("The exact Purchase Order number (PONUM)"),
       },

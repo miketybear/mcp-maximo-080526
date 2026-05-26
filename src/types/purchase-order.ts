@@ -16,6 +16,8 @@ export const SearchPurchaseOrdersInputSchema = {
   status: z.enum(PO_STATUS).optional().describe("PO status — MUST NOT be CAN. Valid values: WAPPR, APPR, INPRG, WREVCC, WTECHMGR, CLOSE"),
   techpic: z.string().optional().describe("Technical Person In Charge, e.g. CUONGLV"),
   potype: z.enum(PO_TYPE).optional().describe("Purchase Order type, e.g. STD (standard) or REL (release)"),
+  fromDate: z.string().optional().describe("Start date for PO order date filtering (YYYY-MM-DD), inclusive"),
+  toDate: z.string().optional().describe("End date for PO order date filtering (YYYY-MM-DD), inclusive"),
   limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
 } as const;
 
@@ -30,14 +32,28 @@ export const POLineSchema = z.object({
   polinenum: z.number().optional(),
   itemnum: z.string().optional(),
   description: z.string().optional(),
-  quantity: z.number().optional(),
+  orderqty: z.number().optional(),
   unitcost: z.number().optional(),
   linecost: z.number().optional(),
   storeloc: z.string().optional(),
   receivedqty: z.number().optional(),
+  budgetcode: z.string().optional(),
+  linetype: z.string().optional(),
 }).loose();
 
 export type POLine = z.infer<typeof POLineSchema>;
+
+// ─────────────────────────────────────────────────
+// PO Budget Summary schema
+// ─────────────────────────────────────────────────
+
+/** Zod schema for a custom PO budget summary (xbgvposummary). */
+export const XbgvpoSummarySchema = z.object({
+  budgetcode: z.string().optional(),
+  description: z.string().optional(),
+}).loose();
+
+export type XbgvpoSummary = z.infer<typeof XbgvpoSummarySchema>;
 
 // ─────────────────────────────────────────────────
 // Purchase Order domain schema
@@ -62,7 +78,9 @@ export const PurchaseOrderSchema = z.object({
   currency: z.string().optional(),
   totalcost: z.number().optional(),
   siteid: z.string().optional(),
+  vendeliverydate: z.string().optional(),
   poline: z.array(POLineSchema).optional(),
+  xbgvposummary: z.array(XbgvpoSummarySchema).optional(),
 }).loose();
 
 export type PurchaseOrder = z.infer<typeof PurchaseOrderSchema>;

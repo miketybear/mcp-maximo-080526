@@ -146,7 +146,7 @@ export const maximoClient = {
    * CAN status is always excluded — never add it to the where clause.
    */
   async searchPurchaseOrders(input: SearchPurchaseOrdersInput): Promise<PurchaseOrderCollection> {
-    const { vendor, formno, description, status, techpic, potype, limit = 10 } = input;
+    const { vendor, formno, description, status, techpic, potype, fromDate, toDate, limit = 10 } = input;
 
     const whereConditions: string[] = [
       // Always exclude cancelled POs
@@ -159,11 +159,14 @@ export const maximoClient = {
     if (status) whereConditions.push(`status="${status}"`);
     if (techpic) whereConditions.push(`techpic="${techpic}"`);
     if (potype) whereConditions.push(`potype="${potype}"`);
+    if (fromDate) whereConditions.push(`orderdate>="${fromDate}"`);
+    if (toDate) whereConditions.push(`orderdate<="${toDate}"`);
 
     const params: Record<string, string | number> = {
       "oslc.where": whereConditions.join(" and "),
-      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid",
+      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid",
       "oslc.pageSize": limit,
+      "oslc.orderBy": "-orderdate",
     };
 
     const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
@@ -178,7 +181,7 @@ export const maximoClient = {
   async getPurchaseOrder(ponum: string): Promise<PurchaseOrderCollection> {
     const params = {
       "oslc.where": `ponum="${ponum}"`,
-      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid,poline{polinenum,itemnum,description,quantity,unitcost,linecost,storeloc,receivedqty}",
+      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid,vendeliverydate,poline{polinenum,itemnum,description,orderqty,unitcost,linecost,storeloc,receivedqty,budgetcode,linetype},xbgvposummary{budgetcode,description}",
     };
 
     const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
