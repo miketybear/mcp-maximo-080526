@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 import type { SearchWorkOrdersInput, WorkOrderCollection } from "./types/index.js";
 import { WorkOrderCollectionSchema } from "./types/index.js";
-import type { SearchPurchaseOrdersInput, PurchaseOrderCollection, PurchaseOrder } from "./types/index.js";
+import type { SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, PurchaseOrderCollection, PurchaseOrder } from "./types/index.js";
 import { PurchaseOrderCollectionSchema } from "./types/index.js";
 import type { SearchVendorInput, VendorCollection } from "./types/index.js";
 import { VendorCollectionSchema } from "./types/index.js";
@@ -164,7 +164,35 @@ export const maximoClient = {
 
     const params: Record<string, string | number> = {
       "oslc.where": whereConditions.join(" and "),
-      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid",
+      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,totalbasecost,siteid",
+      "oslc.pageSize": limit,
+      "oslc.orderBy": "-orderdate",
+    };
+
+    const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
+    const parsed = PurchaseOrderCollectionSchema.parse(raw);
+    parsed.member = filterLatestApprovedRevisions(parsed.member);
+    return parsed;
+  },
+
+  /**
+   * Search Purchase Orders by budget code.
+   * Excludes cancelled POs automatically.
+   */
+  async searchPurchaseOrdersByBudget(input: SearchPurchaseOrdersByBudgetInput): Promise<PurchaseOrderCollection> {
+    const { budgetcode, fromDate, toDate, limit = 10 } = input;
+
+    const whereConditions: string[] = [
+      'status!="CAN"',
+      `poline.budgetcode="%${budgetcode}%"`,
+    ];
+
+    if (fromDate) whereConditions.push(`orderdate>="${fromDate}"`);
+    if (toDate) whereConditions.push(`orderdate<="${toDate}"`);
+
+    const params: Record<string, string | number> = {
+      "oslc.where": whereConditions.join(" and "),
+      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,totalbasecost,siteid",
       "oslc.pageSize": limit,
       "oslc.orderBy": "-orderdate",
     };
@@ -181,7 +209,7 @@ export const maximoClient = {
   async getPurchaseOrder(ponum: string): Promise<PurchaseOrderCollection> {
     const params = {
       "oslc.where": `ponum="${ponum}"`,
-      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currency,totalcost,siteid,vendeliverydate,poline{polinenum,itemnum,description,orderqty,unitcost,linecost,storeloc,receivedqty,budgetcode,linetype},xbgvposummary{budgetcode,description}",
+      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currencycode,totalcost,totalbasecost,siteid,vendeliverydate,poline{polinenum,itemnum,description,orderqty,unitcost,linecost,storeloc,receivedqty,budgetcode,linetype},xbgvposummary{budgetcode,description}",
     };
 
     const raw = await this.fetchMaximo('/api/os/mxpodetails', params);

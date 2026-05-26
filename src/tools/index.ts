@@ -3,6 +3,7 @@ import { register as registerSearchWorkOrders } from "./search-work-orders.js";
 import { register as registerGetWorkOrder } from "./get-work-order.js";
 import { register as registerAnalyzeWorkOrdersHistory } from "./analyze-work-orders-history-by-tag.js";
 import { register as registerSearchPurchaseOrders } from "./search-purchase-orders.js";
+import { register as registerSearchPurchaseOrdersByBudget } from "./search-purchase-orders-by-budget.js";
 import { register as registerGetPurchaseOrder } from "./get-purchase-order.js";
 import { register as registerSearchVendor } from "./search-vendor.js";
 
@@ -19,9 +20,10 @@ export function registerAllTools(server: McpServer): void {
   registerGetWorkOrder(server);
   registerAnalyzeWorkOrdersHistory(server);
   registerSearchPurchaseOrders(server);
+  registerSearchPurchaseOrdersByBudget(server);
   registerGetPurchaseOrder(server);
   registerSearchVendor(server);
 
-  console.log("[registry] Registered 6 tool(s): search_work_orders, get_work_order, analyze_work_orders_history_by_tag, search_purchase_orders, get_purchase_order, search_vendor");
+  console.log("[registry] Registered 7 tool(s): search_work_orders, get_work_order, analyze_work_orders_history_by_tag, search_purchase_orders, search_purchase_orders_by_budget, get_purchase_order, search_vendor");
 }
 

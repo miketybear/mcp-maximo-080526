@@ -24,6 +24,23 @@ export const SearchPurchaseOrdersInputSchema = {
 export type SearchPurchaseOrdersInput = z.infer<z.ZodObject<typeof SearchPurchaseOrdersInputSchema>>;
 
 // ─────────────────────────────────────────────────
+// Search by budget input schema
+// ─────────────────────────────────────────────────
+
+/**
+ * Zod shape for the search_purchase_orders_by_budget tool input.
+ */
+export const SearchPurchaseOrdersByBudgetInputSchema = {
+  budgetcode: z.string().describe("The budget code of the PO line items (supports wildcard/partial match, e.g. BD-OPS-2025-111 or BD-OPS-2025)"),
+  fromDate: z.string().optional().describe("Start date for PO order date filtering (YYYY-MM-DD), inclusive"),
+  toDate: z.string().optional().describe("End date for PO order date filtering (YYYY-MM-DD), inclusive"),
+  limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
+} as const;
+
+export type SearchPurchaseOrdersByBudgetInput = z.infer<z.ZodObject<typeof SearchPurchaseOrdersByBudgetInputSchema>>;
+
+
+// ─────────────────────────────────────────────────
 // PO Line item schema
 // ─────────────────────────────────────────────────
 
@@ -75,8 +92,9 @@ export const PurchaseOrderSchema = z.object({
   potype: z.string().optional(),
   techpic: z.string().optional(),
   orderdate: z.string().optional(),
-  currency: z.string().optional(),
-  totalcost: z.number().optional(),
+  currencycode: z.string().optional(),
+  totalcost: z.number().optional().describe("Total Cost of PO (in PO currency)"),
+  totalbasecost: z.number().optional().describe("Total Cost of PO (in base USD currency)"),
   siteid: z.string().optional(),
   vendeliverydate: z.string().optional(),
   poline: z.array(POLineSchema).optional(),

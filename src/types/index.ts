@@ -13,6 +13,7 @@ export type {
 
 export {
   SearchPurchaseOrdersInputSchema,
+  SearchPurchaseOrdersByBudgetInputSchema,
   PurchaseOrderSchema,
   PurchaseOrderCollectionSchema,
   POLineSchema,
@@ -20,6 +21,7 @@ export {
 } from "./purchase-order.js";
 export type {
   SearchPurchaseOrdersInput,
+  SearchPurchaseOrdersByBudgetInput,
   PurchaseOrder,
   PurchaseOrderCollection,
   POLine,
