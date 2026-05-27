@@ -42,6 +42,8 @@ export const maximoClient = {
     // Always append lean=1 and ignorecollectionref=1 per best practices
     url.searchParams.append("lean", "1");
     url.searchParams.append("ignorecollectionref", "1");
+    url.searchParams.append("ignorekeyref", "1");
+    url.searchParams.append("ignorers", "1");
 
     // Append other params
     Object.entries(params).forEach(([key, value]) => {
@@ -154,7 +156,7 @@ export const maximoClient = {
     ];
 
     if (vendor) whereConditions.push(`vendor="%${vendor}%"`);
-    if (formno) whereConditions.push(`formno="${formno}"`);
+    if (formno) whereConditions.push(`formno="%${formno}%"`);
     if (description) whereConditions.push(`description="%${description}%"`);
     if (status) whereConditions.push(`status="${status}"`);
     if (techpic) whereConditions.push(`techpic="${techpic}"`);
