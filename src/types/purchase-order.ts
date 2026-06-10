@@ -10,16 +10,43 @@ import { PO_STATUS, PO_TYPE } from "../constants.js";
  * Status MUST NOT include CAN.
  */
 export const SearchPurchaseOrdersInputSchema = {
-  vendor: z.string().optional().describe("Vendor (company) code, e.g. 3311V029"),
-  formno: z.string().optional().describe("Form number of the purchase order, e.g. BD-OPS-2024-085"),
-  description: z.string().optional().describe("Partial text to match against PO description"),
-  status: z.enum(PO_STATUS).optional().describe("PO status — MUST NOT be CAN. Valid values: WAPPR, APPR, INPRG, WREVCC, WTECHMGR, CLOSE"),
-  techpic: z.string().optional().describe("Technical Person In Charge, e.g. CUONGLV"),
-  potype: z.enum(PO_TYPE).optional().describe("Purchase Order type, e.g. STD (standard) or REL (release)"),
-  fromDate: z.string().optional().describe("Start date for PO order date filtering (YYYY-MM-DD), inclusive"),
-  toDate: z.string().optional().describe("End date for PO order date filtering (YYYY-MM-DD), inclusive"),
-  limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
-  pageno: z.number().int().min(1).optional().describe("Page number to retrieve (default 1). Use responseInfo.totalPages from a previous response to know how many pages exist."),
+  vendor: z.string().optional().describe("Vendor (company) code (partial match). Example: '3311V029'. Use when the user asks about a specific supplier."),
+  formno: z.string().optional().describe("Form / reference number of the purchase order (partial match). Example: 'BD-OPS-2024-085'."),
+  description: z.string().optional().describe("Keyword to search in the PO short description (partial/fuzzy match). Example: 'pump spare parts'."),
+  status: z.enum(PO_STATUS).optional().describe(
+    "PO status code (exact match). Valid values: " +
+    "WAPPR = Waiting for Approval, APPR = Approved, INPRG = In Progress, " +
+    "WREVCC = Waiting for Revision/CC, WTECHMGR = Waiting for Tech Manager, CLOSE = Closed. " +
+    "CAN (Cancelled) is always excluded automatically — never specify it."
+  ),
+  techpic: z.string().optional().describe("Technical Person In Charge (exact match on user code). Example: 'CUONGLV'. Use when the user asks about a specific technical PIC."),
+  purchaseagent: z.string().optional().describe(
+    "Procurement buyer / purchasing agent responsible for the PO (exact match on user code). " +
+    "Example: 'CUONGPV'. Use when the user asks 'who is the buyer', 'list POs by buyer', or mentions a buyer's name/code. " +
+    "Map the user's name to their Maximo user code before passing."
+  ),
+  potype: z.enum(PO_TYPE).optional().describe(
+    "Purchase Order type (exact match on Maximo code). Valid values: " +
+    "STD = Standard Purchase Order — a one-off, standalone purchase not tied to any blanket or frame contract " +
+    "(users may call this 'one-off PO', 'one-time purchase', 'direct PO', or 'spot purchase'); " +
+    "REL = Release Order — a call-off purchase drawn against an existing blanket/frame contract " +
+    "(users may call this 'release', 'call-off', 'blanket release', or 'frame contract order'). " +
+    "IMPORTANT: 'Release Order' here is a procurement term — it is completely unrelated to a Maintenance Work Order (WO). " +
+    "If the user says 'work order' in the context of a purchase or contract, they likely mean a Release Order (REL), NOT a maintenance WO."
+  ),
+  fromDate: z.string().optional().describe("Start date for PO order date (orderdate) filtering (YYYY-MM-DD), inclusive. Example: '2026-01-01'."),
+  toDate: z.string().optional().describe("End date for PO order date (orderdate) filtering (YYYY-MM-DD), inclusive. Example: '2026-12-31'."),
+  vendeliveryAfter: z.string().optional().describe(
+    "ISO-8601 date: return POs whose vendor expected delivery date (vendeliverydate) is ON OR AFTER this value. " +
+    "Example: '2026-06-01'. Always pair with vendeliveryBefore when filtering by a delivery date range. " +
+    "Use when the user asks 'deliver next month', 'expected delivery in June', etc."
+  ),
+  vendeliveryBefore: z.string().optional().describe(
+    "ISO-8601 date: return POs whose vendor expected delivery date (vendeliverydate) is STRICTLY BEFORE this value. " +
+    "Example: '2026-07-01'. Always pair with vendeliveryAfter when filtering by a delivery date range."
+  ),
+  limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return per page (1–50). Defaults to 10."),
+  pageno: z.number().int().min(1).optional().describe("Page number to retrieve (1-based). Omit to get the first page. Use responseInfo.totalPages from a previous response to know the upper bound."),
 } as const;
 
 export type SearchPurchaseOrdersInput = z.infer<z.ZodObject<typeof SearchPurchaseOrdersInputSchema>>;
@@ -93,6 +120,7 @@ export const PurchaseOrderSchema = z.object({
   formno: z.string().optional(),
   potype: z.string().optional(),
   techpic: z.string().optional(),
+  purchaseagent: z.string().optional(),
   orderdate: z.string().optional(),
   currencycode: z.string().optional(),
   totalcost: z.number().optional().describe("Total Cost of PO (in PO currency)"),

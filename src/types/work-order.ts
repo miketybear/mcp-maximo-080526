@@ -10,25 +10,102 @@ import { WO_STATUS, WO_DISCIPLINE, WO_WORKTYPE, WO_PRIORITY } from "../constants
  * This is the single source of truth — the tool's inputSchema AND
  * the maximoClient.searchWorkOrders() params both derive from this.
  *
- * Date filtering: the LLM resolves natural-language dates (e.g. "next week")
- * into ISO-8601 strings and passes them as schedStartAfter / schedStartBefore.
- * The client builds the oslc.where clause from these.
+ * Filter behaviour summary:
+ *   - location       → fuzzy CONTAINS match on the equipment tag number field
+ *   - description    → fuzzy CONTAINS match on the short WO description text
+ *   - status         → exact match; CAN (cancelled) is excluded from the enum — never use it
+ *   - siteid         → exact match on site identifier
+ *   - bdpocdiscipline → exact match on discipline/team code
+ *   - worktype       → exact match on work type code
+ *   - wopriority     → exact match on numeric priority string ("1"–"4")
+ *   - schedFinish*   → date-range filter on scheduled completion date
+ *   - plusgsafetycrit / plusgcomcrit → boolean flags for SCE / PCE
+ *   - woclass        → exact match; default is WORKORDER (excludes sub-tasks)
+ *
+ * Date handling: resolve any natural-language date expression (e.g. "this month",
+ * "next week") to ISO-8601 before passing it as schedFinishAfter / schedFinishBefore.
  */
 
 export const SearchWorkOrdersInputSchema = {
-  location: z.string().optional().describe("Tag number for maintenance task of a Work Order, e.g. HT-PM-4415C"),
-  status: z.enum(WO_STATUS).optional().describe("Work Order status"),
-  siteid: z.string().optional().describe("Site ID (e.g., BD1)"),
-  bdpocdiscipline: z.enum(WO_DISCIPLINE).optional().describe("Discipline code/team for the work order, e.g. mechanical, electrical, rotating, etc."),
-  worktype: z.enum(WO_WORKTYPE).optional().describe("Work type of the work order, PM is planned maintenance and CM is corrective maintenance"),
-  wopriority: z.enum(WO_PRIORITY).optional().describe("Work Order priority, with 4 being the highest priority, e.g. 1=Low, 2=Medium, 3=High, 4=Urgent"),
-  schedFinishAfter: z.string().optional().describe("Return WOs with schedfinish on or after this ISO-8601 date (e.g. 2026-05-01T00:00:00+07:00). Use this together with schedFinishBefore to filter by a date range."),
-  schedFinishBefore: z.string().optional().describe("Return WOs with schedfinish strictly before this ISO-8601 date (e.g. 2026-06-01T00:00:00+07:00). Use this together with schedFinishAfter to filter by a date range."),
-  plusgsafetycrit: z.boolean().optional().describe("Safety Critical Element (SCE) flag (true/false), true if user search for SCE WO"),
-  plusgcomcrit: z.boolean().optional().describe("Production Critical Element (PCE) flag (true/false), true if user search for PCE WO"),
-  woclass: z.string().optional().describe("Work Order class (e.g., WORKORDER). Defaults to WORKORDER to exclude activity tasks."),
-  limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
-  pageno: z.number().int().min(1).optional().describe("Page number to retrieve (default 1). Use responseInfo.totalPages from a previous response to know how many pages exist."),
+  location: z.string().optional().describe(
+    "Equipment tag number (partial match). Filters WOs whose location field CONTAINS this value. " +
+    "Example: 'HT-PM-4415C'. Use this when the user mentions a specific asset, tag, or equipment ID."
+  ),
+  description: z.string().optional().describe(
+    "Keyword to search in the WO short description (partial/fuzzy match). " +
+    "Example: 'pump seal replacement'. Use this when the user mentions a job description or subject keyword."
+  ),
+  status: z.enum(WO_STATUS).optional().describe(
+    "Work Order status code (exact match). Valid values: " +
+    "WAPPR = Waiting for Approval (created, not yet approved), " +
+    "APPR = Approved (ready to be scheduled/executed), " +
+    "INPRG = In Progress (work has started), " +
+    "SCHED = Scheduled (approved and assigned a schedule slot), " +
+    "COMP = Completed (work finished, awaiting close), " +
+    "CLOSE = Closed (fully processed and closed). " +
+    "CAN (Cancelled) is never a valid filter — it is always excluded automatically."
+  ),
+  siteid: z.string().optional().describe(
+    "Site identifier (exact match). Restricts results to a single site. Example: 'BD1'."
+  ),
+  bdpocdiscipline: z.enum(WO_DISCIPLINE).optional().describe(
+    "Responsible discipline / maintenance team (exact match). Valid values: " +
+    "MECH = Mechanical team, " +
+    "'E&I' = Electrical & Instrumentation team, " +
+    "PROD = Production / Operations team, " +
+    "RES = Rotating Equipment & Reliability team. " +
+    "Map user keywords: 'electrical' or 'instrumentation' → 'E&I'; 'mechanical' → MECH; " +
+    "'rotating' or 'reliability' → RES; 'production' or 'operations' → PROD."
+  ),
+  worktype: z.enum(WO_WORKTYPE).optional().describe(
+    "Work type code (exact match). Valid values: " +
+    "PM = Preventive (Planned) Maintenance — scheduled, recurring tasks; " +
+    "CM = Corrective Maintenance — reactive repairs triggered by a failure or defect; " +
+    "General = Ad-hoc work not classified as PM or CM; " +
+    "PdM = Predictive Maintenance — condition-based inspection or monitoring; " +
+    "Routine = Routine operational checks or housekeeping. " +
+    "Map user language: 'preventive' or 'planned' → PM; 'corrective' or 'breakdown' → CM; " +
+    "'predictive' or 'condition-based' → PdM."
+  ),
+  wopriority: z.enum(WO_PRIORITY).optional().describe(
+    "Work Order priority level (exact match on the string code). Valid values: " +
+    "'1' = Low priority, " +
+    "'2' = Medium priority, " +
+    "'3' = High priority, " +
+    "'4' = Urgent (highest priority). " +
+    "Map user language: 'urgent' or 'critical' → '4'; 'high' → '3'; 'medium' or 'normal' → '2'; 'low' → '1'."
+  ),
+  schedFinishAfter: z.string().optional().describe(
+    "ISO-8601 datetime: return WOs whose scheduled finish date is ON OR AFTER this value. " +
+    "Example: '2026-05-01T00:00:00+07:00'. " +
+    "Always pair with schedFinishBefore when the user requests a date range (e.g. 'this month', 'next week'). " +
+    "Resolve natural-language dates to ISO-8601 before passing."
+  ),
+  schedFinishBefore: z.string().optional().describe(
+    "ISO-8601 datetime: return WOs whose scheduled finish date is STRICTLY BEFORE this value. " +
+    "Example: '2026-06-01T00:00:00+07:00'. " +
+    "Always pair with schedFinishAfter when the user requests a date range."
+  ),
+  plusgsafetycrit: z.boolean().optional().describe(
+    "Safety Critical Element (SCE) flag. Set to true to return only SCE-tagged work orders. " +
+    "Use when the user asks for 'SCE', 'safety critical', or 'safety-critical element' WOs."
+  ),
+  plusgcomcrit: z.boolean().optional().describe(
+    "Production Critical Element (PCE) flag. Set to true to return only PCE-tagged work orders. " +
+    "Use when the user asks for 'PCE', 'production critical', or 'production-critical element' WOs."
+  ),
+  woclass: z.string().optional().describe(
+    "Work Order class (exact match). Defaults to 'WORKORDER' which returns standard work orders only " +
+    "and excludes sub-tasks / activity records. " +
+    "Set to 'ACTIVITY' only if the user explicitly asks for tasks or sub-activities."
+  ),
+  limit: z.number().int().min(1).max(50).default(10).describe(
+    "Maximum number of records to return per page (1–50). Defaults to 10."
+  ),
+  pageno: z.number().int().min(1).optional().describe(
+    "Page number to retrieve (1-based). Omit to get the first page. " +
+    "Use responseInfo.totalPages from a previous response to know the upper bound."
+  ),
 } as const;
 
 /** Inferred type for the search input params. */

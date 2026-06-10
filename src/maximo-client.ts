@@ -71,7 +71,7 @@ export const maximoClient = {
 
   async searchWorkOrders(input: SearchWorkOrdersInput): Promise<WorkOrderCollection> {
     const {
-      location, status, siteid, bdpocdiscipline,
+      location, description, status, siteid, bdpocdiscipline,
       worktype, wopriority, schedFinishAfter, schedFinishBefore, limit = 10,
       plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno,
     } = input;
@@ -80,6 +80,7 @@ export const maximoClient = {
     const whereConditions: string[] = [];
 
     if (location) whereConditions.push(`location="%${location}%"`);
+    if (description) whereConditions.push(`description="%${description}%"`);
     if (status) whereConditions.push(`status="${status}"`);
     if (siteid) whereConditions.push(`siteid="${siteid}"`);
     if (bdpocdiscipline) whereConditions.push(`bdpocdiscipline="${bdpocdiscipline}"`);
@@ -156,7 +157,7 @@ export const maximoClient = {
    * CAN status is always excluded — never add it to the where clause.
    */
   async searchPurchaseOrders(input: SearchPurchaseOrdersInput): Promise<PurchaseOrderCollection> {
-    const { vendor, formno, description, status, techpic, potype, fromDate, toDate, limit = 10, pageno } = input;
+    const { vendor, formno, description, status, techpic, purchaseagent, potype, fromDate, toDate, vendeliveryAfter, vendeliveryBefore, limit = 10, pageno } = input;
 
     const whereConditions: string[] = [
       // Always exclude cancelled POs
@@ -168,13 +169,16 @@ export const maximoClient = {
     if (description) whereConditions.push(`description="%${description}%"`);
     if (status) whereConditions.push(`status="${status}"`);
     if (techpic) whereConditions.push(`techpic="${techpic}"`);
+    if (purchaseagent) whereConditions.push(`purchaseagent="${purchaseagent}"`);
     if (potype) whereConditions.push(`potype="${potype}"`);
     if (fromDate) whereConditions.push(`orderdate>="${fromDate}"`);
     if (toDate) whereConditions.push(`orderdate<="${toDate}"`);
+    if (vendeliveryAfter) whereConditions.push(`vendeliverydate>="${vendeliveryAfter}"`);
+    if (vendeliveryBefore) whereConditions.push(`vendeliverydate<"${vendeliveryBefore}"`);
 
     const params: Record<string, string | number> = {
       "oslc.where": whereConditions.join(" and "),
-      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,totalbasecost,siteid",
+      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,purchaseagent,orderdate,vendeliverydate,totalbasecost,siteid",
       "oslc.pageSize": limit,
       "oslc.orderBy": "-orderdate",
     };
