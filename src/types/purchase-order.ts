@@ -19,6 +19,7 @@ export const SearchPurchaseOrdersInputSchema = {
   fromDate: z.string().optional().describe("Start date for PO order date filtering (YYYY-MM-DD), inclusive"),
   toDate: z.string().optional().describe("End date for PO order date filtering (YYYY-MM-DD), inclusive"),
   limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
+  pageno: z.number().int().min(1).optional().describe("Page number to retrieve (default 1). Use responseInfo.totalPages from a previous response to know how many pages exist."),
 } as const;
 
 export type SearchPurchaseOrdersInput = z.infer<z.ZodObject<typeof SearchPurchaseOrdersInputSchema>>;
@@ -35,6 +36,7 @@ export const SearchPurchaseOrdersByBudgetInputSchema = {
   fromDate: z.string().optional().describe("Start date for PO order date filtering (YYYY-MM-DD), inclusive"),
   toDate: z.string().optional().describe("End date for PO order date filtering (YYYY-MM-DD), inclusive"),
   limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
+  pageno: z.number().int().min(1).optional().describe("Page number to retrieve (default 1). Use responseInfo.totalPages from a previous response to know how many pages exist."),
 } as const;
 
 export type SearchPurchaseOrdersByBudgetInput = z.infer<z.ZodObject<typeof SearchPurchaseOrdersByBudgetInputSchema>>;
@@ -104,6 +106,9 @@ export const PurchaseOrderSchema = z.object({
 export type PurchaseOrder = z.infer<typeof PurchaseOrderSchema>;
 
 /** Standard Maximo OSLC collection envelope for Purchase Orders. */
+/** Reusable schema for a paging link object (previousPage / nextPage). */
+const PagingLinkSchema = z.object({ href: z.string() }).loose();
+
 export const PurchaseOrderCollectionSchema = z.object({
   member: z.array(PurchaseOrderSchema),
   responseInfo: z.object({
@@ -111,6 +116,8 @@ export const PurchaseOrderCollectionSchema = z.object({
     totalCount: z.number().optional(),
     totalPages: z.number().optional(),
     pagenum: z.number().optional(),
+    previousPage: PagingLinkSchema.optional(),
+    nextPage: PagingLinkSchema.optional(),
   }).loose().optional(),
 }).loose();
 

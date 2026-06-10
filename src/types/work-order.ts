@@ -28,6 +28,7 @@ export const SearchWorkOrdersInputSchema = {
   plusgcomcrit: z.boolean().optional().describe("Production Critical Element (PCE) flag (true/false), true if user search for PCE WO"),
   woclass: z.string().optional().describe("Work Order class (e.g., WORKORDER). Defaults to WORKORDER to exclude activity tasks."),
   limit: z.number().int().min(1).max(50).default(10).describe("Maximum number of records to return"),
+  pageno: z.number().int().min(1).optional().describe("Page number to retrieve (default 1). Use responseInfo.totalPages from a previous response to know how many pages exist."),
 } as const;
 
 /** Inferred type for the search input params. */
@@ -112,6 +113,9 @@ export const WorkOrderSchema = z.object({
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;
 
 /** Standard Maximo OSLC collection envelope. */
+/** Reusable schema for a paging link object (previousPage / nextPage). */
+const PagingLinkSchema = z.object({ href: z.string() }).loose();
+
 export const WorkOrderCollectionSchema = z.object({
   member: z.array(WorkOrderSchema),
   responseInfo: z.object({
@@ -119,6 +123,8 @@ export const WorkOrderCollectionSchema = z.object({
     totalCount: z.number().optional(),
     totalPages: z.number().optional(),
     pagenum: z.number().optional(),
+    previousPage: PagingLinkSchema.optional(),
+    nextPage: PagingLinkSchema.optional(),
   }).loose().optional(),
 }).loose();
 

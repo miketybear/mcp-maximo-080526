@@ -73,7 +73,7 @@ export const maximoClient = {
     const {
       location, status, siteid, bdpocdiscipline,
       worktype, wopriority, schedFinishAfter, schedFinishBefore, limit = 10,
-      plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER",
+      plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno,
     } = input;
 
     // Build the oslc.where string based on provided fields
@@ -92,8 +92,12 @@ export const maximoClient = {
     if (woclass) whereConditions.push(`woclass="${woclass}"`);
 
     const params: Record<string, string | number> = {
-      "oslc.pageSize": limit
+      "oslc.pageSize": limit,
     };
+
+    if (pageno) {
+      params["pageno"] = pageno;
+    }
 
     if (whereConditions.length > 0) {
       params["oslc.where"] = whereConditions.join(" and ");
@@ -128,12 +132,16 @@ export const maximoClient = {
     return WorkOrderCollectionSchema.parse(raw);
   },
 
-  async searchHistoryWOByTag(location: string, limit: number = 10): Promise<WorkOrderCollection> {
-    const params = {
+  async searchHistoryWOByTag(location: string, limit: number = 10, pageno?: number): Promise<WorkOrderCollection> {
+    const params: Record<string, string | number> = {
       "oslc.where": `location="%${location}%" and woclass="WORKORDER" and status in ["COMP","CLOSE"]`,
       "oslc.select": "wonum,description,matusetrans{itemnum,description,issuetype,positivequantity}",
       "oslc.pageSize": limit,
     };
+
+    if (pageno) {
+      params["pageno"] = pageno;
+    }
 
     const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
     return WorkOrderCollectionSchema.parse(raw);
@@ -148,7 +156,7 @@ export const maximoClient = {
    * CAN status is always excluded — never add it to the where clause.
    */
   async searchPurchaseOrders(input: SearchPurchaseOrdersInput): Promise<PurchaseOrderCollection> {
-    const { vendor, formno, description, status, techpic, potype, fromDate, toDate, limit = 10 } = input;
+    const { vendor, formno, description, status, techpic, potype, fromDate, toDate, limit = 10, pageno } = input;
 
     const whereConditions: string[] = [
       // Always exclude cancelled POs
@@ -171,6 +179,10 @@ export const maximoClient = {
       "oslc.orderBy": "-orderdate",
     };
 
+    if (pageno) {
+      params["pageno"] = pageno;
+    }
+
     const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
     const parsed = PurchaseOrderCollectionSchema.parse(raw);
     parsed.member = filterLatestApprovedRevisions(parsed.member);
@@ -182,7 +194,7 @@ export const maximoClient = {
    * Excludes cancelled POs automatically.
    */
   async searchPurchaseOrdersByBudget(input: SearchPurchaseOrdersByBudgetInput): Promise<PurchaseOrderCollection> {
-    const { budgetcode, fromDate, toDate, limit = 10 } = input;
+    const { budgetcode, fromDate, toDate, limit = 10, pageno } = input;
 
     const whereConditions: string[] = [
       'status!="CAN"',
@@ -198,6 +210,10 @@ export const maximoClient = {
       "oslc.pageSize": limit,
       "oslc.orderBy": "-orderdate",
     };
+
+    if (pageno) {
+      params["pageno"] = pageno;
+    }
 
     const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
     const parsed = PurchaseOrderCollectionSchema.parse(raw);
@@ -225,7 +241,7 @@ export const maximoClient = {
   // ─────────────────────────────────────────────────
 
   async searchVendors(input: SearchVendorInput): Promise<VendorCollection> {
-    const { name, limit = 10 } = input;
+    const { name, limit = 10, pageno } = input;
 
     const whereConditions: string[] = [
       'type="V"',
@@ -240,6 +256,10 @@ export const maximoClient = {
       "oslc.select": "company,name,type,orgid",
       "oslc.pageSize": limit,
     };
+
+    if (pageno) {
+      params["pageno"] = pageno;
+    }
 
     const raw = await this.fetchMaximo('/api/os/mxvendor', params);
     return VendorCollectionSchema.parse(raw);

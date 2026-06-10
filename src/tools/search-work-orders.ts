@@ -19,7 +19,9 @@ export function register(server: McpServer) {
       "Search specifically for Maximo Work Orders (WOs) by various criteria. Do not use for Purchase Orders (POs) or Vendors. " +
       "Returns matching records up to the specified limit. Guidelines: (1) Set 'plusgsafetycrit' (SCE) or 'plusgcomcrit' (PCE) " +
       "to true if the query asks for SCE/PCE related work orders or assets. (2) woclass defaults to WORKORDER to exclude " +
-      "activity tasks. (3) Status MUST NOT include CAN.",
+      "activity tasks. (3) Status MUST NOT include CAN. " +
+      "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +
+      "To fetch another page, call again with the same filters and set pageno to the desired page number.",
     inputSchema: SearchWorkOrdersInputSchema,
     annotations: { readOnlyHint: true },
   }, async (args) => {

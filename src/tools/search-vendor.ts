@@ -16,7 +16,9 @@ export function register(server: McpServer) {
       description:
         "Search Maximo Vendors (Companies) by name (partial match, e.g. 'Viet Dan') " +
         "and return their company code/ID. Only returns companies of type 'V' (Vendor). " +
-        "If user request to find PO for a specific vendor or company name, always call this tool first, then call search_purchase_orders tool with vendor code from this tool.",
+        "If user request to find PO for a specific vendor or company name, always call this tool first, then call search_purchase_orders tool with vendor code from this tool. " +
+        "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +
+        "To fetch another page, call again with the same filters and set pageno to the desired page number.",
       inputSchema: SearchVendorInputSchema,
       annotations: { readOnlyHint: true },
     },

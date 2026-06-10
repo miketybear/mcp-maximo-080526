@@ -18,7 +18,9 @@ export function register(server: McpServer) {
         "Search Maximo Purchase Orders (POs) by their line item budget code. " +
         "Supports wildcard/partial match (e.g. 'BD1-O3203-2026-01' or 'BD1-O3203-2026'). " +
         "Status MUST NOT include CAN — cancelled POs are always excluded automatically. " +
-        "Returns summary-level fields.",
+        "Returns summary-level fields. " +
+        "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +
+        "To fetch another page, call again with the same filters and set pageno to the desired page number.",
       inputSchema: SearchPurchaseOrdersByBudgetInputSchema,
       annotations: { readOnlyHint: true },
     },

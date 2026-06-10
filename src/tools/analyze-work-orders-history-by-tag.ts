@@ -18,11 +18,12 @@ export function register(server: McpServer) {
     inputSchema: {
       location: z.string().describe("Tag number for maintenance task of a Work Order, e.g. HT-PM-4415C"),
       limit: z.number().int().min(1).max(100).default(10).describe("Maximum number of records to return"),
+      pageno: z.number().int().min(1).optional().describe("Page number to retrieve (default 1). Use responseInfo.totalPages from a previous response to know how many pages exist."),
     },
     annotations: { readOnlyHint: true },
   }, async (args) => {
     try {
-      const results = await maximoClient.searchHistoryWOByTag(args.location, args.limit);
+      const results = await maximoClient.searchHistoryWOByTag(args.location, args.limit, args.pageno);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }],
       };
