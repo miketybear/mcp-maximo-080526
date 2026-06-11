@@ -5,6 +5,10 @@ import type { SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, Purc
 import { PurchaseOrderCollectionSchema } from "./types/index.js";
 import type { SearchVendorInput, VendorCollection } from "./types/index.js";
 import { VendorCollectionSchema } from "./types/index.js";
+import type { GetBudgetCodeInput, BudgetCodeCollection } from "./types/index.js";
+import { BudgetCodeCollectionSchema } from "./types/index.js";
+import type { ExchangeRateLookupResult } from "./types/index.js";
+import { ExchangeRateCollectionSchema } from "./types/index.js";
 
 function filterLatestApprovedRevisions(pos: PurchaseOrder[]): PurchaseOrder[] {
   const groups: Record<string, PurchaseOrder[]> = {};
@@ -267,5 +271,146 @@ export const maximoClient = {
 
     const raw = await this.fetchMaximo('/api/os/mxvendor', params);
     return VendorCollectionSchema.parse(raw);
+  },
+
+  // ─────────────────────────────────────────────────
+  // Budget Code methods (oslcmxbudget)
+  // ─────────────────────────────────────────────────
+
+  /**
+   * Search Budget Codes by budgetcode field (exact or partial match).
+   * Returns: budgetcode, parentcode, budgetyear, status, deptcode,
+   *          custodian, approvedamt, utilizedamt, sbmtremain.
+   */
+  async getBudgetCodes(input: GetBudgetCodeInput): Promise<BudgetCodeCollection> {
+    const { budgetcode, limit = 10, pageno } = input;
+
+    // Use wildcard wrapping for partial match; an exact code will still match
+    // because Maximo's LIKE comparison treats "%exact%" as a full-string match.
+    const params: Record<string, string | number> = {
+      "oslc.where": `budgetcode="%${budgetcode}%"`,
+      "oslc.select": "budgetcode,parentcode,budgetyear,status,deptcode,custodian,approvedamt,utilizedamt,sbmtremain",
+      "oslc.pageSize": limit,
+      "oslc.orderBy": "+budgetcode",
+    };
+
+    if (pageno) {
+      params["pageno"] = pageno;
+    }
+
+    const raw = await this.fetchMaximo('/api/os/oslcmxbudget', params);
+    return BudgetCodeCollectionSchema.parse(raw);
+  },
+
+  // ─────────────────────────────────────────────────
+  // Exchange Rate methods (mxl-excgrates)
+  // ─────────────────────────────────────────────────
+
+  /**
+   * Look up the currently active exchange rate between two currencies.
+   *
+   * Maximo may store either the direct pair (e.g. EUR→USD) or the inverse
+   * (e.g. USD→VND). This method tries the direct pair first; if no record is
+   * found it retries with the pairs swapped and inverts the rate so that
+   * `normalizedRate` always means: 1 unit of `currencycode` = N units of `currencycodeto`.
+   *
+   * Filters to records that are active today:
+   *   activedate <= today AND expiredate >= today
+   * Orders by -activedate to pick the most recently effective record.
+   *
+   * @returns The normalized lookup result, or null when no active rate is found.
+   */
+  async getExchangeRate(
+    currencycode: string,
+    currencycodeto: string = "USD"
+  ): Promise<ExchangeRateLookupResult | null> {
+    const from = currencycode.toUpperCase();
+    const to = currencycodeto.toUpperCase();
+
+    // Today as YYYY-MM-DD (local date used for Maximo date comparisons)
+    const today = new Date().toISOString().split("T")[0];
+    const selectFields = "currencycode,currencycodeto,activedate,expiredate,exchangerate";
+
+    const fetchRate = async (fromCcy: string, toCcy: string) => {
+      const params: Record<string, string | number> = {
+        "oslc.where":
+          `currencycode="${fromCcy}" and currencycodeto="${toCcy}"` +
+          ` and activedate<="${today}" and expiredate>="${today}"`,
+        "oslc.select": selectFields,
+        "oslc.pageSize": 1,
+        "oslc.orderBy": "-activedate",
+      };
+      const raw = await this.fetchMaximo('/api/os/mxl-excgrates', params);
+      return ExchangeRateCollectionSchema.parse(raw);
+    };
+
+    // ── 1. Try direct pair: from → to ──────────────────────────
+    const directResult = await fetchRate(from, to);
+    if (directResult.member.length > 0) {
+      const rec = directResult.member[0];
+      return {
+        currencycode: from,
+        currencycodeto: to,
+        normalizedRate: rec.exchangerate,
+        isInverse: false,
+        rawRate: rec.exchangerate,
+        rawCurrencyCode: rec.currencycode,
+        rawCurrencyCodeTo: rec.currencycodeto,
+        activedate: rec.activedate,
+        expiredate: rec.expiredate,
+      };
+    }
+
+    // ── 2. Try inverse pair: to → from ─────────────────────────
+    const inverseResult = await fetchRate(to, from);
+    if (inverseResult.member.length > 0) {
+      const rec = inverseResult.member[0];
+      const normalizedRate = rec.exchangerate !== 0 ? 1 / rec.exchangerate : 0;
+      return {
+        currencycode: from,
+        currencycodeto: to,
+        normalizedRate,
+        isInverse: true,
+        rawRate: rec.exchangerate,
+        rawCurrencyCode: rec.currencycode,
+        rawCurrencyCodeTo: rec.currencycodeto,
+        activedate: rec.activedate,
+        expiredate: rec.expiredate,
+      };
+    }
+
+    return null;
+  },
+
+  /**
+   * Convert a monetary amount from a given currency to USD.
+   *
+   * Internally calls getExchangeRate to find the active rate and applies
+   * the correct multiplication or division depending on how the pair is stored.
+   *
+   * @returns The equivalent amount in USD, rounded to 6 decimal places.
+   * @throws When no active exchange rate is found for the currency pair.
+   */
+  async convertToUsd(amount: number, currencycode: string): Promise<{
+    amountUsd: number;
+    currencycode: string;
+    rateUsed: ExchangeRateLookupResult;
+  }> {
+    const rateInfo = await this.getExchangeRate(currencycode, "USD");
+    if (!rateInfo) {
+      throw new Error(
+        `No active exchange rate found for ${currencycode.toUpperCase()} ↔ USD as of today. ` +
+        `Please ensure the rate is configured in Maximo (mxl-excgrates).`
+      );
+    }
+
+    // normalizedRate = 1 unit of currencycode = N USD
+    const amountUsd = parseFloat((amount * rateInfo.normalizedRate).toFixed(6));
+
+    return {
+      amountUsd,
+      currencycode: currencycode.toUpperCase(),
+      rateUsed: rateInfo,
+    };
   },
 };

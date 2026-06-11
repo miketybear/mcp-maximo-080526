@@ -6,6 +6,9 @@ import { register as registerSearchPurchaseOrders } from "./search-purchase-orde
 import { register as registerSearchPurchaseOrdersByBudget } from "./search-purchase-orders-by-budget.js";
 import { register as registerGetPurchaseOrder } from "./get-purchase-order.js";
 import { register as registerSearchVendor } from "./search-vendor.js";
+import { register as registerGetBudgetCode } from "./get-budget-code.js";
+import { register as registerGetExchangeRate } from "./get-exchange-rate.js";
+import { register as registerConvertToUsd } from "./convert-to-usd.js";
 
 /**
  * Register all tools on the given MCP server instance.
@@ -23,7 +26,10 @@ export function registerAllTools(server: McpServer): void {
   registerSearchPurchaseOrdersByBudget(server);
   registerGetPurchaseOrder(server);
   registerSearchVendor(server);
+  registerGetBudgetCode(server);
+  registerGetExchangeRate(server);
+  registerConvertToUsd(server);
 
-  console.log("[registry] Registered 7 tool(s): search_work_orders, get_work_order, analyze_work_orders_history_by_tag, search_purchase_orders, search_purchase_orders_by_budget, get_purchase_order, search_vendor");
+  console.log("[registry] Registered 10 tool(s): search_work_orders, get_work_order, analyze_work_orders_history_by_tag, search_purchase_orders, search_purchase_orders_by_budget, get_purchase_order, search_vendor, get_budget_code, get_exchange_rate, convert_to_usd");
 }
 

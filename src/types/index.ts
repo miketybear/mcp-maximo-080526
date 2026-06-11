@@ -38,3 +38,28 @@ export type {
   Vendor,
   VendorCollection,
 } from "./vendor.js";
+
+export {
+  GetBudgetCodeInputSchema,
+  BudgetCodeSchema,
+  BudgetCodeCollectionSchema,
+} from "./budget-code.js";
+export type {
+  GetBudgetCodeInput,
+  BudgetCode,
+  BudgetCodeCollection,
+} from "./budget-code.js";
+
+export {
+  GetExchangeRateInputSchema,
+  ConvertToUsdInputSchema,
+  ExchangeRateSchema,
+  ExchangeRateCollectionSchema,
+} from "./exchange-rate.js";
+export type {
+  GetExchangeRateInput,
+  ConvertToUsdInput,
+  ExchangeRate,
+  ExchangeRateCollection,
+  ExchangeRateLookupResult,
+} from "./exchange-rate.js";
