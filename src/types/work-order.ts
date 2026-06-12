@@ -99,6 +99,13 @@ export const SearchWorkOrdersInputSchema = {
     "and excludes sub-tasks / activity records. " +
     "Set to 'ACTIVITY' only if the user explicitly asks for tasks or sub-activities."
   ),
+  parent: z.string().optional().describe(
+    "Filter by parent work order relationship. " +
+    "Use 'null' to return only top-level (parent) work orders whose parent field is empty/null — i.e. WOs that are NOT children of another WO. " +
+    "Use 'notnull' to return only child work orders that have a parent. " +
+    "Use any specific WONUM string (e.g. 'WO-12345') to return children of that exact parent WO. " +
+    "When grouping results by parent or when the user asks for 'parent WOs only', set this to 'null'."
+  ),
   limit: z.number().int().min(1).max(50).default(10).describe(
     "Maximum number of records to return per page (1–50). Defaults to 10."
   ),
@@ -163,6 +170,7 @@ export type MatUseTrans = z.infer<typeof MatUseTransSchema>;
 /** Zod schema for a single Maximo Work Order record (the fields we select). */
 export const WorkOrderSchema = z.object({
   wonum: z.string(),
+  parent: z.string().optional(),
   description: z.string().optional(),
   description_longdescription: z.string().optional(),
   status: z.string().optional(),

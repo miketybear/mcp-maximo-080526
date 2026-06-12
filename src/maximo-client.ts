@@ -34,7 +34,7 @@ function filterLatestApprovedRevisions(pos: PurchaseOrder[]): PurchaseOrder[] {
 }
 
 /** Shared list of selected work order attributes for OSLC queries. */
-const WO_SELECT_FIELDS = "wonum,description,status,woclass,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
+const WO_SELECT_FIELDS = "wonum,parent,description,status,woclass,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
 
 /** Extended select list (used by getWorkOrder). */
 const WO_SELECT_FIELDS_DETAIL = `${WO_SELECT_FIELDS},reportdate,assetnum,schedstart,schedfinish,actstart,actfinish,estdur,wopriority,siteid,description_longdescription`;
@@ -77,7 +77,7 @@ export const maximoClient = {
     const {
       location, description, status, siteid, bdpocdiscipline,
       worktype, wopriority, schedFinishAfter, schedFinishBefore, limit = 10,
-      plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno,
+      plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno, parent,
     } = input;
 
     // Build the oslc.where string based on provided fields
@@ -95,6 +95,19 @@ export const maximoClient = {
     if (plusgsafetycrit !== undefined) whereConditions.push(`plusgsafetycrit=${plusgsafetycrit ? "1" : "0"}`);
     if (plusgcomcrit !== undefined) whereConditions.push(`plusgcomcrit=${plusgcomcrit ? "1" : "0"}`);
     if (woclass) whereConditions.push(`woclass="${woclass}"`);
+
+    // Parent filter: 'null' → top-level WOs only, 'notnull' → child WOs only,
+    // any other value → exact match on parent WONUM.
+    // OSLC null syntax: field!="*" means IS NULL, field="*" means IS NOT NULL.
+    if (parent !== undefined) {
+      if (parent === "null") {
+        whereConditions.push(`parent!="*"`);
+      } else if (parent === "notnull") {
+        whereConditions.push(`parent="*"`);
+      } else {
+        whereConditions.push(`parent="${parent}"`);
+      }
+    }
 
     const params: Record<string, string | number> = {
       "oslc.pageSize": limit,
