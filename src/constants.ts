@@ -5,8 +5,22 @@
 /**
  * Known Maximo Work Order statuses (CAN is intentionally omitted — cancelled
  * work orders must never be requested or returned).
+ *
+ * Completion boundary:
+ *   NOT completed → WAPPR | APPR | SCHED | INPRG | WMATL
+ *   Completed     → CHKCOMP | COMP | CLOSE
+ *
+ * Status details:
+ *   WAPPR   – Waiting for Approval (created, not yet approved)
+ *   APPR    – Approved (ready to be scheduled/executed)
+ *   INPRG   – In Progress (work has started)
+ *   SCHED   – Scheduled (approved and assigned a schedule slot)
+ *   WMATL   – Waiting for Materials (approved but blocked on parts/materials)
+ *   CHKCOMP – Check Completion (pending final inspection before closing)
+ *   COMP    – Completed (work finished, awaiting close)
+ *   CLOSE   – Closed (fully processed and closed)
  */
-export const WO_STATUS = ["WAPPR", "APPR", "INPRG", "SCHED", "COMP", "CLOSE"] as const;
+export const WO_STATUS = ["WAPPR", "APPR", "INPRG", "SCHED", "WMATL", "CHKCOMP", "COMP", "CLOSE"] as const;
 
 /**
  * Discipline (team) codes at BD POC.

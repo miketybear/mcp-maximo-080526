@@ -41,9 +41,12 @@ export const SearchWorkOrdersInputSchema = {
     "APPR = Approved (ready to be scheduled/executed), " +
     "INPRG = In Progress (work has started), " +
     "SCHED = Scheduled (approved and assigned a schedule slot), " +
+    "WMATL = Waiting for Materials (approved but blocked on parts/materials), " +
+    "CHKCOMP = Check Completion (pending final inspection before closing), " +
     "COMP = Completed (work finished, awaiting close), " +
     "CLOSE = Closed (fully processed and closed). " +
-    "CAN (Cancelled) is never a valid filter — it is always excluded automatically."
+    "CAN (Cancelled) is never a valid filter — it is always excluded automatically. " +
+    "Do NOT use this field for backlog/open/not-completed queries — use notCompleted=true instead."
   ),
   siteid: z.string().optional().describe(
     "Site identifier (exact match). Restricts results to a single site. Example: 'BD1'."
@@ -105,6 +108,11 @@ export const SearchWorkOrdersInputSchema = {
     "Use 'notnull' to return only child work orders that have a parent. " +
     "Use any specific WONUM string (e.g. 'WO-12345') to return children of that exact parent WO. " +
     "When grouping results by parent or when the user asks for 'parent WOs only', set this to 'null'."
+  ),
+  notCompleted: z.boolean().optional().describe(
+    "When true, filters to only WOs that are NOT yet completed: excludes CHKCOMP, COMP, and CLOSE. " +
+    "Use this for queries like 'backlog WOs', 'open WOs', 'not completed', 'outstanding WOs', or 'pending WOs'. " +
+    "Mutually exclusive with the status field — do not set both."
   ),
   limit: z.number().int().min(1).max(50).default(10).describe(
     "Maximum number of records to return per page (1–50). Defaults to 10."

@@ -8,7 +8,9 @@ import { SearchWorkOrdersInputSchema } from "../types/index.js";
  * Filter selection guide:
  *   - location       → use when the user mentions an equipment tag or asset ID (fuzzy match)
  *   - description    → use when the user mentions a job description keyword (fuzzy match)
- *   - status         → WAPPR/APPR/INPRG/SCHED/COMP/CLOSE only; CAN is never valid
+ *   - status         → WAPPR/APPR/INPRG/SCHED/WMATL/CHKCOMP/COMP/CLOSE only; CAN is never valid
+ *   - notCompleted   → set to true for 'backlog', 'open', 'not completed', 'outstanding', or 'pending' WO queries
+ *                       (excludes CHKCOMP, COMP, CLOSE); do NOT combine with status
  *   - siteid         → use when restricted to a specific plant/site
  *   - bdpocdiscipline → MECH | E&I | PROD | RES; infer from user's team/department keywords
  *   - worktype       → PM | CM | General | PdM | Routine; infer from user's description of the job
@@ -24,6 +26,7 @@ import { SearchWorkOrdersInputSchema } from "../types/index.js";
  *   - Avoid adding filters not explicitly or implicitly requested by the user.
  *   - Default woclass to WORKORDER to exclude activity/task records.
  *   - Status MUST NOT be CAN — it is excluded from the enum entirely.
+ *   - For 'backlog' / 'not completed' / 'open' queries always use notCompleted=true, not a list of statuses.
  */
 export function register(server: McpServer) {
   server.registerTool("search_work_orders", {
@@ -33,6 +36,7 @@ export function register(server: McpServer) {
       "work type (worktype), priority (wopriority), scheduled finish date range " +
       "(schedFinishAfter / schedFinishBefore), SCE flag (plusgsafetycrit), PCE flag (plusgcomcrit), " +
       "or WO class (woclass). " +
+      "Use notCompleted=true to filter for backlog / open / not-completed WOs (excludes CHKCOMP, COMP, CLOSE). " +
       "Do NOT use this tool for Purchase Orders (POs) or Vendors. " +
       "Status CAN (Cancelled) is always excluded automatically — never specify it. " +
       "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +

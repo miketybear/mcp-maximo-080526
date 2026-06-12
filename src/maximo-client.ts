@@ -77,7 +77,7 @@ export const maximoClient = {
     const {
       location, description, status, siteid, bdpocdiscipline,
       worktype, wopriority, schedFinishAfter, schedFinishBefore, limit = 10,
-      plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno, parent,
+      plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno, parent, notCompleted,
     } = input;
 
     // Build the oslc.where string based on provided fields
@@ -86,6 +86,8 @@ export const maximoClient = {
     if (location) whereConditions.push(`location="%${location}%"`);
     if (description) whereConditions.push(`description="%${description}%"`);
     if (status) whereConditions.push(`status="${status}"`);
+    // notCompleted=true → exclude all completed/closed statuses (backlog / open WOs)
+    if (notCompleted) whereConditions.push(`status!="CHKCOMP" and status!="COMP" and status!="CLOSE"`);
     if (siteid) whereConditions.push(`siteid="${siteid}"`);
     if (bdpocdiscipline) whereConditions.push(`bdpocdiscipline="${bdpocdiscipline}"`);
     if (worktype) whereConditions.push(`worktype="${worktype}"`);
