@@ -36,7 +36,7 @@ export function register(server: McpServer) {
       "work type (worktype), priority (wopriority), scheduled finish date range " +
       "(schedFinishAfter / schedFinishBefore), SCE flag (plusgsafetycrit), PCE flag (plusgcomcrit), " +
       "or WO class (woclass). " +
-      "Use notCompleted=true to filter for backlog / open / not-completed WOs (excludes CHKCOMP, COMP, CLOSE). " +
+      "Use notCompleted=true to filter for backlog / open / not-completed WOs. " +
       "Do NOT use this tool for Purchase Orders (POs) or Vendors. " +
       "Status CAN (Cancelled) is always excluded automatically — never specify it. " +
       "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +

@@ -87,7 +87,7 @@ export const maximoClient = {
     if (description) whereConditions.push(`description="%${description}%"`);
     if (status) whereConditions.push(`status="${status}"`);
     // notCompleted=true → exclude all completed/closed statuses (backlog / open WOs)
-    if (notCompleted) whereConditions.push(`status!="CHKCOMP" and status!="COMP" and status!="CLOSE"`);
+    if (notCompleted) whereConditions.push(`status!="CHKCOMP" and status!="COMP" and historyflag=0`);
     if (siteid) whereConditions.push(`siteid="${siteid}"`);
     if (bdpocdiscipline) whereConditions.push(`bdpocdiscipline="${bdpocdiscipline}"`);
     if (worktype) whereConditions.push(`worktype="${worktype}"`);
