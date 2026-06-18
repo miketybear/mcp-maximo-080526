@@ -322,35 +322,33 @@ export const maximoClient = {
   // ─────────────────────────────────────────────────
 
   /**
-   * Look up the currently active exchange rate between two currencies.
+   * Look up the active exchange rate between two currencies for a given date.
    *
    * Maximo may store either the direct pair (e.g. EUR→USD) or the inverse
    * (e.g. USD→VND). This method tries the direct pair first; if no record is
    * found it retries with the pairs swapped and inverts the rate so that
    * `normalizedRate` always means: 1 unit of `currencycode` = N units of `currencycodeto`.
    *
-   * Filters to records that are active today:
-   *   activedate <= today AND expiredate >= today
-   * Orders by -activedate to pick the most recently effective record.
-   *
+   * @param asOfDate - Optional YYYY-MM-DD date to query (defaults to today).
    * @returns The normalized lookup result, or null when no active rate is found.
    */
   async getExchangeRate(
     currencycode: string,
-    currencycodeto: string = "USD"
+    currencycodeto: string = "USD",
+    asOfDate?: string
   ): Promise<ExchangeRateLookupResult | null> {
     const from = currencycode.toUpperCase();
     const to = currencycodeto.toUpperCase();
 
-    // Today as YYYY-MM-DD (local date used for Maximo date comparisons)
-    const today = new Date().toISOString().split("T")[0];
+    // Use the provided date or fall back to today (YYYY-MM-DD)
+    const refDate = asOfDate ?? new Date().toISOString().split("T")[0];
     const selectFields = "currencycode,currencycodeto,activedate,expiredate,exchangerate";
 
     const fetchRate = async (fromCcy: string, toCcy: string) => {
       const params: Record<string, string | number> = {
         "oslc.where":
           `currencycode="${fromCcy}" and currencycodeto="${toCcy}"` +
-          ` and activedate<="${today}" and expiredate>="${today}"`,
+          ` and activedate<="${refDate}" and expiredate>="${refDate}"`,
         "oslc.select": selectFields,
         "oslc.pageSize": 1,
         "oslc.orderBy": "-activedate",

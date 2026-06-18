@@ -6,7 +6,7 @@ import { z } from "zod";
 
 /**
  * Input schema for the get_exchange_rate tool.
- * Fetches the current active exchange rate between two currencies from Maximo.
+ * Fetches the active exchange rate between two currencies from Maximo for a given date.
  * Searches both direct and inverse pairs automatically.
  */
 export const GetExchangeRateInputSchema = {
@@ -18,6 +18,13 @@ export const GetExchangeRateInputSchema = {
     .optional()
     .default("USD")
     .describe("The target currency code (default: 'USD')."),
+  asOfDate: z
+    .string()
+    .optional()
+    .describe(
+      "Optional date (YYYY-MM-DD) to look up the rate that was active on that day. " +
+      "Defaults to today if omitted. Example: '2025-10-15' to get the October 2025 rate."
+    ),
 } as const;
 
 export type GetExchangeRateInput = z.infer<z.ZodObject<typeof GetExchangeRateInputSchema>>;
