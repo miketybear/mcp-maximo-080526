@@ -62,7 +62,9 @@ if (config.transport === "stdio") {
     // RFC 8414 Authorization Server Metadata (proxies Entra ID metadata)
     app.get("/.well-known/oauth-authorization-server", (_req, res) => {
       res.json({
-        issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+        // Per RFC 8414 Section 3, issuer MUST match the authorization server URL
+        // advertised in /.well-known/oauth-protected-resource (config.serverBaseUrl)
+        issuer: config.serverBaseUrl,
         authorization_endpoint: `${config.serverBaseUrl}/authorize`,
         token_endpoint: `${config.serverBaseUrl}/token`,
         jwks_uri: `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
