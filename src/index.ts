@@ -39,6 +39,7 @@ if (config.transport === "stdio") {
   const authMiddleware = buildAuthMiddleware();
   const app = express();
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   // -----------------------------------------------------------------------
   // RFC 9728 & RFC 8414 — OAuth Protected Resource & Authorization Server Metadata
@@ -62,8 +63,8 @@ if (config.transport === "stdio") {
     app.get("/.well-known/oauth-authorization-server", (_req, res) => {
       res.json({
         issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
-        authorization_endpoint: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
-        token_endpoint: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        authorization_endpoint: `${config.serverBaseUrl}/authorize`,
+        token_endpoint: `${config.serverBaseUrl}/token`,
         jwks_uri: `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
         response_types_supported: ["code"],
         grant_types_supported: ["authorization_code", "refresh_token"],
@@ -73,7 +74,7 @@ if (config.transport === "stdio") {
       });
     });
 
-    // Fallback: Redirect /authorize requests to Entra ID
+    // Fallback/Proxy: Redirect /authorize requests to Entra ID
     app.get("/authorize", (req, res) => {
       const queryParams = new URLSearchParams(req.query as Record<string, string>);
       // Entra ID v2.0 requires a 'scope' parameter. If the MCP client omitted it,
@@ -88,23 +89,34 @@ if (config.transport === "stdio") {
       res.redirect(302, entraAuthUrl);
     });
 
-    // Fallback: Proxy /token requests to Entra ID
+    // Fallback/Proxy: Proxy /token requests to Entra ID
     app.post("/token", async (req, res) => {
       try {
         const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
-        const bodyParams = new URLSearchParams(req.body);
+        const bodyParams = new URLSearchParams(req.body as Record<string, string>);
+
         if (!bodyParams.has("scope")) {
           bodyParams.set(
             "scope",
             `api://${config.azure.clientId}/mcp.access offline_access openid profile`
           );
         }
+
+        console.log("[auth] Proxying token request to Entra ID with params:", Array.from(bodyParams.keys()));
+
         const response = await fetch(tokenUrl, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: bodyParams.toString(),
         });
         const data = await response.json();
+
+        if (!response.ok) {
+          console.error("[auth] Entra ID token error:", response.status, data);
+        } else {
+          console.log("[auth] Entra ID token exchange successful!");
+        }
+
         res.status(response.status).json(data);
       } catch (err) {
         console.error("[auth] Token proxy error:", err);
