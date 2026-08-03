@@ -75,8 +75,16 @@ if (config.transport === "stdio") {
 
     // Fallback: Redirect /authorize requests to Entra ID
     app.get("/authorize", (req, res) => {
-      const queryStr = new URLSearchParams(req.query as Record<string, string>).toString();
-      const entraAuthUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${queryStr}`;
+      const queryParams = new URLSearchParams(req.query as Record<string, string>);
+      // Entra ID v2.0 requires a 'scope' parameter. If the MCP client omitted it,
+      // default to our server's primary scope + standard OIDC scopes.
+      if (!queryParams.has("scope")) {
+        queryParams.set(
+          "scope",
+          `api://${config.azure.clientId}/mcp.access offline_access openid profile`
+        );
+      }
+      const entraAuthUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${queryParams.toString()}`;
       res.redirect(302, entraAuthUrl);
     });
 
@@ -84,11 +92,17 @@ if (config.transport === "stdio") {
     app.post("/token", async (req, res) => {
       try {
         const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
-        const bodyParams = new URLSearchParams(req.body).toString();
+        const bodyParams = new URLSearchParams(req.body);
+        if (!bodyParams.has("scope")) {
+          bodyParams.set(
+            "scope",
+            `api://${config.azure.clientId}/mcp.access offline_access openid profile`
+          );
+        }
         const response = await fetch(tokenUrl, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: bodyParams,
+          body: bodyParams.toString(),
         });
         const data = await response.json();
         res.status(response.status).json(data);
