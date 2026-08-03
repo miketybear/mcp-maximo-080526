@@ -3,6 +3,24 @@ import type express from "express";
 import { config } from "./config.js";
 
 // ---------------------------------------------------------------------------
+// RFC 9728 — WWW-Authenticate helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the WWW-Authenticate header value per RFC 9728 Section 5.1.
+ * Points MCP clients to the Protected Resource Metadata endpoint so they can
+ * discover the authorization server and initiate the OAuth flow.
+ */
+export function buildWwwAuthenticateHeader(): string {
+  const baseUrl = config.serverBaseUrl;
+  if (baseUrl) {
+    // Include resource_metadata pointing to the PRM endpoint
+    return `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`;
+  }
+  return "Bearer";
+}
+
+// ---------------------------------------------------------------------------
 // Static Bearer API-Key middleware (existing behaviour)
 // ---------------------------------------------------------------------------
 
@@ -17,19 +35,23 @@ export const staticKeyMiddleware: express.RequestHandler = (req, res, next) => {
 
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({
-      error: "Unauthorized",
-      message: "Missing or invalid Authorization header. Expected Bearer Token.",
-    });
+    res.status(401)
+      .set("WWW-Authenticate", buildWwwAuthenticateHeader())
+      .json({
+        error: "Unauthorized",
+        message: "Missing or invalid Authorization header. Expected Bearer Token.",
+      });
     return;
   }
 
   const token = authHeader.substring(7).trim();
   if (token !== expectedApiKey) {
-    res.status(401).json({
-      error: "Unauthorized",
-      message: "Invalid API Key.",
-    });
+    res.status(401)
+      .set("WWW-Authenticate", buildWwwAuthenticateHeader())
+      .json({
+        error: "Unauthorized",
+        message: "Invalid API Key.",
+      });
     return;
   }
 
@@ -71,11 +93,13 @@ export function createEntraIdAuthMiddleware(): express.RequestHandler {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({
-        error: "Unauthorized",
-        message:
-          "Missing or invalid Authorization header. Expected: Bearer <entra-id-access-token>",
-      });
+      res.status(401)
+        .set("WWW-Authenticate", buildWwwAuthenticateHeader())
+        .json({
+          error: "Unauthorized",
+          message:
+            "Missing or invalid Authorization header. Expected: Bearer <entra-id-access-token>",
+        });
       return;
     }
 
@@ -94,10 +118,12 @@ export function createEntraIdAuthMiddleware(): express.RequestHandler {
       next();
     } catch (err) {
       if (err instanceof joseErrors.JWTExpired) {
-        res.status(401).json({
-          error: "Unauthorized",
-          message: "Access token has expired.",
-        });
+        res.status(401)
+          .set("WWW-Authenticate", buildWwwAuthenticateHeader())
+          .json({
+            error: "Unauthorized",
+            message: "Access token has expired.",
+          });
         return;
       }
 
@@ -107,10 +133,12 @@ export function createEntraIdAuthMiddleware(): express.RequestHandler {
         err instanceof joseErrors.JWSSignatureVerificationFailed ||
         err instanceof joseErrors.JWTInvalid
       ) {
-        res.status(401).json({
-          error: "Unauthorized",
-          message: "Access token validation failed.",
-        });
+        res.status(401)
+          .set("WWW-Authenticate", buildWwwAuthenticateHeader())
+          .json({
+            error: "Unauthorized",
+            message: "Access token validation failed.",
+          });
         return;
       }
 

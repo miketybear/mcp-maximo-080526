@@ -4,10 +4,13 @@ const API_KEY = process.env.API_KEY;
 const MAXIMO_URL = process.env.MAXIMO_URL;
 const MCP_API_KEY = process.env.MCP_API_KEY;
 const AUTH_PROVIDER = process.env.AUTH_PROVIDER || "static";
+const TRANSPORT = process.env.TRANSPORT || "http";
 const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || "";
 const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || "";
 // Audience defaults to the standard Entra ID app URI if not explicitly overridden
 const AZURE_AUDIENCE = process.env.AZURE_AUDIENCE || `api://${AZURE_CLIENT_ID}`;
+// Canonical URI of this MCP server (used in RFC 9728 Protected Resource Metadata)
+const MCP_SERVER_BASE_URL = process.env.MCP_SERVER_BASE_URL || "";
 
 if (!API_KEY) {
   console.warn("WARNING: API_KEY environment variable is not set.");
@@ -21,6 +24,7 @@ if (AUTH_PROVIDER === "static" && !MCP_API_KEY) {
 if (AUTH_PROVIDER === "entra-id") {
   if (!AZURE_TENANT_ID) console.warn("WARNING: AZURE_TENANT_ID is not set. Entra ID auth will fail.");
   if (!AZURE_CLIENT_ID) console.warn("WARNING: AZURE_CLIENT_ID is not set. Entra ID auth will fail.");
+  if (!MCP_SERVER_BASE_URL) console.warn("WARNING: MCP_SERVER_BASE_URL is not set. OAuth metadata discovery (RFC 9728) will be incomplete.");
 }
 
 export const config = {
@@ -31,6 +35,10 @@ export const config = {
   mcpApiKey: MCP_API_KEY || "",
   /** Authentication provider: 'static' (default) or 'entra-id' */
   authProvider: AUTH_PROVIDER as "static" | "entra-id",
+  /** Transport mode: 'http' (default) or 'stdio' for local MCP clients */
+  transport: TRANSPORT as "http" | "stdio",
+  /** Canonical URI of this MCP server (used in RFC 9728 metadata) */
+  serverBaseUrl: MCP_SERVER_BASE_URL,
   azure: {
     tenantId: AZURE_TENANT_ID,
     clientId: AZURE_CLIENT_ID,

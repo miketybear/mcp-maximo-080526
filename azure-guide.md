@@ -243,3 +243,112 @@ Once Copilot Studio generates the **Redirect URL** (shown at the bottom of the m
 6. Paste the copied **Redirect URL** into the field.
 7. Click **Configure** / **Save**.
 8. Go back to Copilot Studio and complete the wizard to save the MCP server.
+
+---
+
+## Integrating with Claude Desktop (Custom Connectors)
+
+Claude Desktop supports connecting to remote MCP servers via **Custom Connectors**. The Maximo MCP Server exposes [RFC 9728 Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728) so Claude can auto-discover the Entra ID authorization server.
+
+> [!NOTE]
+> When you add a Custom Connector in Claude Desktop, the connection originates from **Anthropic's cloud infrastructure**, not from your local machine. Your MCP server must be reachable over the public internet from Anthropic's IP ranges.
+
+### Option A: OAuth 2.0 Authentication (Recommended)
+
+This method uses the full MCP Authorization flow (OAuth 2.1 + PKCE) via Entra ID.
+
+**Prerequisites & Azure Setup:**
+- `AUTH_PROVIDER=entra-id` configured on the MCP server
+- `MCP_SERVER_BASE_URL` set to the public URL of the MCP server (e.g., `https://mxm-mcp-server.biendongpoc.vn`)
+- In Azure Portal > **Microsoft Entra ID** > **App registrations** > select your **Client App Registration** (`8f65db11-fbe5-41e4-b5c3-36387245e73e`):
+  1. Go to **Authentication** from the left menu.
+  2. Under **Platform configurations**, click **Add a platform** (or **Add URI** if Web is already added).
+  3. Select **Web**.
+  4. Add the exact Redirect URI: `https://claude.ai/api/mcp/auth_callback`
+  5. Click **Save**.
+
+**Steps in Claude Desktop / claude.ai:**
+
+1. Open **Claude Desktop** or [claude.ai](https://claude.ai).
+2. Navigate to **Settings** > **Connectors** (or **Customize** > **Connectors** for Pro/Max users).
+3. Click **+** then **Add custom connector**.
+4. Enter your MCP server URL: `https://your-mcp-server-domain.com/mcp`
+5. Click **Advanced settings** and fill in:
+
+| Field | Value | Source |
+| :--- | :--- | :--- |
+| **OAuth Client ID** | The **Application (client) ID** of your **Client App Registration** | Step 3 |
+| **OAuth Client Secret** | The **Client Secret Value** of your **Client App Registration** | Step 4 |
+
+6. Click **Add** to finish.
+7. Claude will initiate the OAuth flow and open browser to Microsoft Entra ID.
+8. Once authenticated, enable the connector in your chat via the **+** button > **Connectors**.
+
+> [!IMPORTANT]
+> If Claude prompts for a redirect URL, copy it and register it in your Client App Registration under **Authentication** > **Add a platform** > **Web** (same as Step 2 in the Copilot Studio section above).
+
+### Option B: Static API Key Authentication
+
+If you prefer a simpler setup without OAuth, you can use a static Bearer token.
+
+**Prerequisites:**
+- `AUTH_PROVIDER=static` configured on the MCP server
+- `MCP_API_KEY` set to a secure token
+
+**Steps:**
+
+1. Follow steps 1-4 from Option A above to add the connector URL.
+2. Click **Advanced settings**.
+3. Enter your `MCP_API_KEY` value as the static Bearer token.
+4. Click **Add**.
+
+> [!NOTE]
+> Static token auth uses Claude's `static_headers` (Beta) feature. This is simpler but does not provide per-user authentication.
+
+---
+
+## Using stdio Transport for Local MCP Clients
+
+For local development or when running MCP clients that support **stdio transport** (Claude Desktop local config, Cursor, Gemini CLI, Windsurf, etc.), you can run the MCP server as a local subprocess. In this mode, no HTTP server or authentication is needed — the host OS handles security.
+
+### Configuration
+
+Set the `TRANSPORT` environment variable:
+
+```env
+TRANSPORT=stdio
+```
+
+Or pass it inline:
+
+```bash
+TRANSPORT=stdio npx tsx src/index.ts
+```
+
+### Claude Desktop (Local stdio)
+
+Add the following to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "maximo": {
+      "command": "npx",
+      "args": ["tsx", "src/index.ts"],
+      "cwd": "/path/to/mcp-maximo-080526",
+      "env": {
+        "TRANSPORT": "stdio",
+        "API_KEY": "your-maximo-api-key",
+        "MAXIMO_URL": "https://your-maximo-url.com"
+      }
+    }
+  }
+}
+```
+
+### Cursor / Gemini CLI
+
+Most local MCP clients follow a similar pattern: specify the command, args, and environment variables in their MCP server configuration.
+
+> [!NOTE]
+> In stdio mode, the MCP server communicates via stdin/stdout. All log messages are written to stderr so they don't interfere with the MCP protocol.
