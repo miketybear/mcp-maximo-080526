@@ -149,12 +149,12 @@ sudo chmod 600 /etc/nginx/ssl/privatekey-2025.pem
 ### 2. Copy and Adapt the Nginx Configuration
 Copy the provided `nginx.conf` from your project folder into Nginx’s configuration structure:
 ```bash
-sudo cp nginx.conf /etc/nginx/sites-available/mcp-server1
+sudo cp nginx.conf /etc/nginx/sites-available/mxm-mcp-server
 ```
 
 Open the configuration to verify that the SSL certificate paths match your custom certs:
 ```bash
-sudo nano /etc/nginx/sites-available/mcp-server1
+sudo nano /etc/nginx/sites-available/mxm-mcp-server
 ```
 Confirm the following lines point to your uploaded certificates:
 ```nginx
@@ -166,7 +166,7 @@ ssl_trusted_certificate /etc/nginx/ssl/ca-certificate-2025.pem; # Optional
 ### 3. Enable the Site
 Create a symbolic link in the `sites-enabled` directory:
 ```bash
-sudo ln -s /etc/nginx/sites-available/mcp-server1 /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/mxm-mcp-server /etc/nginx/sites-enabled/
 ```
 
 ### 4. Verify and Reload Nginx
@@ -271,9 +271,9 @@ Copy the modified files from your development machine to the `/var/www/maximo-mc
 * `nginx.conf` (if reverse-proxy behavior, headers, or CORS rules changed)
 
 > [!IMPORTANT]
-> If `nginx.conf` changed, copying it into `/var/www/maximo-mcp` alone does **nothing** — Nginx reads its config from `/etc/nginx/sites-available/mcp-server1`. Re-copy it and reload, same as Step 4:
+> If `nginx.conf` changed, copying it into `/var/www/maximo-mcp` alone does **nothing** — Nginx reads its config from `/etc/nginx/sites-available/mxm-mcp-server`. Re-copy it and reload, same as Step 4:
 > ```bash
-> sudo cp nginx.conf /etc/nginx/sites-available/mcp-server1
+> sudo cp nginx.conf /etc/nginx/sites-available/mxm-mcp-server
 > sudo nginx -t && sudo systemctl reload nginx
 > ```
 
@@ -323,7 +323,7 @@ If you're deploying commits `bb4d2f0` (`fix: resolve OAuth instability blocking 
 
 Redeploy checklist:
 1. Sync files (Step 6.1) — **`git pull` covers all three; a manual copy must include `nginx.conf`, not just `src/`.**
-2. Re-copy `nginx.conf` and reload Nginx (`sudo cp nginx.conf /etc/nginx/sites-available/mcp-server1 && sudo nginx -t && sudo systemctl reload nginx`) — skipping this leaves the duplicate-CORS bug in place even after the container is rebuilt.
+2. Re-copy `nginx.conf` and reload Nginx (`sudo cp nginx.conf /etc/nginx/sites-available/mxm-mcp-server && sudo nginx -t && sudo systemctl reload nginx`) — skipping this leaves the duplicate-CORS bug in place even after the container is rebuilt.
 3. `docker compose up -d --build` (without `-v`).
 4. Confirm the new volume mounted and loaded any pre-existing registrations:
    ```bash
