@@ -13,3 +13,9 @@ services:
       - .env
     environment:
       - PORT=3030
+    volumes:
+      # Persists DCR client registrations (RFC 7591) across container rebuilds/restarts.
+      - dcr-data:/app/data
+
+volumes:
+  dcr-data:

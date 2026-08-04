@@ -32,6 +32,10 @@ RUN npm ci --only=production
 # Copy compiled JavaScript from builder
 COPY --from=builder /app/dist ./dist
 
+# Directory where the DCR client store (RFC 7591) is persisted across restarts.
+# Created and owned by 'node' up front since the container runs as non-root.
+RUN mkdir -p /app/data && chown node:node /app/data
+
 # Run as a non-root user for security
 USER node
 

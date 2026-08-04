@@ -6,6 +6,9 @@
 # Node
 node_modules/
 dist/
+
+# Local persisted DCR client registrations (see src/dcr.ts, config.dcrStorePath)
+/data/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

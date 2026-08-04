@@ -15,6 +15,9 @@ const MCP_SERVER_BASE_URL = process.env.MCP_SERVER_BASE_URL || "";
 // server internally to handle OAuth on behalf of dynamically registered MCP clients.
 const AZURE_PROXY_CLIENT_ID = process.env.AZURE_PROXY_CLIENT_ID || "";
 const AZURE_PROXY_CLIENT_SECRET = process.env.AZURE_PROXY_CLIENT_SECRET || "";
+// File path where dynamically registered DCR clients (RFC 7591) are persisted so
+// registrations survive server restarts/redeploys instead of living only in memory.
+const DCR_STORE_PATH = process.env.DCR_STORE_PATH || "./data/dcr-clients.json";
 
 if (!API_KEY) {
   console.warn("WARNING: API_KEY environment variable is not set.");
@@ -53,4 +56,6 @@ export const config = {
     proxyClientId: AZURE_PROXY_CLIENT_ID,
     proxyClientSecret: AZURE_PROXY_CLIENT_SECRET,
   },
+  /** File path used to persist DCR client registrations across restarts */
+  dcrStorePath: DCR_STORE_PATH,
 } as const;

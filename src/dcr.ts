@@ -1,4 +1,7 @@
 import { randomUUID } from "crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
+import { config } from "./config.js";
 
 // ---------------------------------------------------------------------------
 // RFC 7591 — Dynamic Client Registration
@@ -11,9 +14,11 @@ import { randomUUID } from "crypto";
 //
 // Security posture:
 //   - All registered clients share the same underlying Entra ID identity.
-//   - Individual client metadata is tracked in this in-memory store.
-//   - The store is intentionally ephemeral; MCP clients re-register on restart
-//     (the spec requires them to handle 401s gracefully, triggering re-registration).
+//   - Individual client metadata is tracked in this store, persisted to disk
+//     (config.dcrStorePath) so registrations survive process restarts. If a
+//     client_id is issued but the server restarts before the user finishes
+//     signing in, an in-memory-only store would fail the subsequent /authorize
+//     lookup — persisting to disk avoids that intermittent failure.
 // ---------------------------------------------------------------------------
 
 export interface ClientRegistration {
@@ -36,8 +41,37 @@ export interface ClientRegistration {
   created_at: number;
 }
 
-/** In-memory store: DCR client_id → registration metadata. */
+/** DCR client_id → registration metadata, mirrored to config.dcrStorePath on disk. */
 const clientStore = new Map<string, ClientRegistration>();
+
+/** Load previously persisted registrations from disk at startup, if present. */
+function loadPersistedStore(): void {
+  const storePath = config.dcrStorePath;
+  try {
+    if (!existsSync(storePath)) return;
+    const raw = readFileSync(storePath, "utf-8");
+    const registrations = JSON.parse(raw) as ClientRegistration[];
+    for (const registration of registrations) {
+      clientStore.set(registration.client_id, registration);
+    }
+    console.log(`[dcr] Loaded ${clientStore.size} persisted client registration(s) from ${storePath}`);
+  } catch (err) {
+    console.error(`[dcr] Failed to load persisted client store from ${storePath}:`, err);
+  }
+}
+
+/** Write the current registration set to disk. Failures are logged, not fatal. */
+function persistStore(): void {
+  const storePath = config.dcrStorePath;
+  try {
+    mkdirSync(dirname(storePath), { recursive: true });
+    writeFileSync(storePath, JSON.stringify(Array.from(clientStore.values()), null, 2), "utf-8");
+  } catch (err) {
+    console.error(`[dcr] Failed to persist client store to ${storePath}:`, err);
+  }
+}
+
+loadPersistedStore();
 
 /**
  * Look up a previously registered client by its DCR-issued client_id.
@@ -124,6 +158,7 @@ export function handleRegistration(rawBody: unknown): {
   };
 
   clientStore.set(clientId, registration);
+  persistStore();
 
   console.log(
     `[dcr] Registered new client: client_id=${clientId} name="${registration.client_name ?? "(unnamed)"}" redirect_uris=${JSON.stringify(registration.redirect_uris)}`
