@@ -80,7 +80,12 @@ if (config.transport === "stdio") {
     });
 
     // RFC 8414 Authorization Server Metadata (proxies Entra ID metadata)
-    app.get("/.well-known/oauth-authorization-server", oauthCorsMiddleware, (_req, res) => {
+    //
+    // Per RFC 8414 §3.1, path-aware clients derive the well-known URL from the
+    // resource path. For a resource at /mcp, Anthropic's cloud infrastructure
+    // requests /.well-known/oauth-authorization-server/mcp (with the /mcp suffix).
+    // Using a regex route handles both the bare path and any suffix variant.
+    app.get(/^\/.well-known\/oauth-authorization-server(\/.*)?$/, oauthCorsMiddleware, (_req, res) => {
       res.json({
         // Per RFC 8414 Section 3, issuer MUST match the authorization server URL
         // advertised in /.well-known/oauth-protected-resource (config.serverBaseUrl)
