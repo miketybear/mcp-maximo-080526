@@ -308,7 +308,7 @@ This method uses the full MCP Authorization flow (OAuth 2.1 + PKCE) via Entra ID
 
 **Prerequisites & Azure Setup:**
 - `AUTH_PROVIDER=entra-id` configured on the MCP server
-- `MCP_SERVER_BASE_URL` set to the public URL of the MCP server (e.g., `https://mxm-mcp-server.biendongpoc.vn`)
+- `MCP_SERVER_BASE_URL` set to the public URL of the MCP server (e.g., `https://mcp-server1.biendongpoc.vn`)
 - In Azure Portal > **Microsoft Entra ID** > **App registrations** > select your **Client App Registration** (`8f65db11-fbe5-41e4-b5c3-36387245e73e`):
   1. Go to **Authentication** from the left menu.
   2. Under **Platform configurations**, click **Add a platform** (or **Add URI** if Web is already added).
