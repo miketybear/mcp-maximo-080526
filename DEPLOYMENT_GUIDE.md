@@ -42,7 +42,22 @@ sudo systemctl enable --now nginx
 
 ## Step 1: Copy Project Files to the Server
 
-Create a folder on your Ubuntu server (for example: `/var/www/maximo-mcp`) and upload the project files there. 
+### Option A: Clone via Git (recommended)
+
+If the server can reach the repository, clone it directly. This is the preferred method because every future update becomes a single `git pull` (see Step 6) instead of copying files by hand:
+
+```bash
+sudo mkdir -p /var/www/maximo-mcp
+sudo chown $USER:$USER /var/www/maximo-mcp
+git clone https://github.com/miketybear/mcp-maximo-080526.git /var/www/maximo-mcp
+cd /var/www/maximo-mcp
+```
+
+`.env` is git-ignored, so it is never touched by `git pull` — you still create it manually in Step 2.
+
+### Option B: Manual Upload
+
+Create a folder on your Ubuntu server (for example: `/var/www/maximo-mcp`) and upload the project files there (e.g. via `scp`/`rsync`).
 
 You only need the following core files on the server:
 - `src/` (and all its subfolders)
@@ -106,6 +121,9 @@ You should see logs indicating the MCP server is listening on port `3030`:
 MCP Server running on http://localhost:3030/mcp
 Health check available at http://localhost:3030/health
 ```
+
+> [!NOTE]
+> **DCR client registration persistence.** When `AUTH_PROVIDER=entra-id`, clients that self-register via Dynamic Client Registration (RFC 7591 — e.g. Claude Desktop, Cursor) are stored in `/app/data/dcr-clients.json` inside the container. `docker-compose.yml` mounts this path as the named volume `dcr-data`, so registrations survive `docker compose up -d --build`. They are **not** preserved if you run `docker compose down -v` (the `-v` flag deletes named volumes) — avoid that flag unless you intend to force every connected client to re-register.
 
 ---
 
@@ -231,15 +249,33 @@ Content-Type: application/json; charset=utf-8
 
 ---
 
-## Step 6: Updating the Server with New Tools (Redeployment)
+## Step 6: Updating the Server (Redeployment)
 
-When you develop and implement new tools or make updates to the Maximo MCP server, use the following steps to redeploy the server with zero or minimal downtime:
+When you develop and implement new tools or make updates to the Maximo MCP server, use the following steps to redeploy the server with zero or minimal downtime.
 
 ### 1. Sync Updated Project Files
-Copy the modified files from your development machine to the `/var/www/maximo-mcp` directory on the server.
-Typically, you only need to sync the following:
-* `src/` directory (containing your new tools, schemas, client updates, and updated registry index)
-* `package.json` and `package-lock.json` (if you added new npm package dependencies)
+
+**Option A — Git pull (recommended, if the server was set up via Step 1 Option A):**
+```bash
+cd /var/www/maximo-mcp
+git status   # make sure there are no local edits that would conflict
+git pull origin main
+```
+This updates every tracked file in one command — `src/`, `package.json`, `Dockerfile`, `docker-compose.yml`, and `nginx.conf` included. `.env` is git-ignored and is never touched.
+
+**Option B — Manual copy:**
+Copy the modified files from your development machine to the `/var/www/maximo-mcp` directory on the server. Don't assume only `src/` changed — check the actual diff of the release you're deploying. Commonly touched files:
+* `src/` directory (tools, schemas, client updates, auth/OAuth logic)
+* `package.json` and `package-lock.json` (if dependencies changed)
+* `Dockerfile` and `docker-compose.yml` (if the container image or volumes changed)
+* `nginx.conf` (if reverse-proxy behavior, headers, or CORS rules changed)
+
+> [!IMPORTANT]
+> If `nginx.conf` changed, copying it into `/var/www/maximo-mcp` alone does **nothing** — Nginx reads its config from `/etc/nginx/sites-available/mxm-mcp-server`. Re-copy it and reload, same as Step 4:
+> ```bash
+> sudo cp nginx.conf /etc/nginx/sites-available/mxm-mcp-server
+> sudo nginx -t && sudo systemctl reload nginx
+> ```
 
 ### 2. Rebuild and Restart the Container
 Run the Docker Compose command with the `--build` flag. Docker will execute the multi-stage build, compile the new TypeScript tools inside the container, install any new dependencies, and replace the running container:
@@ -251,6 +287,9 @@ cd /var/www/maximo-mcp
 # Build new image and restart the container in the background
 docker compose up -d --build
 ```
+
+> [!NOTE]
+> Do **not** add `-v` to `docker compose down`/`up` during a redeploy — that flag deletes named volumes, including `dcr-data` (persisted DCR client registrations, see Step 3), forcing every already-connected MCP client to re-register.
 
 ### 3. Verify Container Startup
 Check the real-time container logs to verify the TypeScript compilation succeeded and the server is listening:
@@ -271,3 +310,24 @@ curl -i -X POST https://mxm-mcp-server.biendongpoc.vn/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
 ```
+
+---
+
+## Applying the OAuth Stability Update (Copilot Studio / Claude Desktop fixes)
+
+If you're deploying commits `bb4d2f0` (`fix: resolve OAuth instability blocking Copilot Studio and Claude Desktop`) and `6b056b6` (`feat: persist DCR client registrations across restarts`) onto a server that was already running `AUTH_PROVIDER=entra-id`, follow Step 6 with these files in mind — all three changed:
+
+* `src/index.ts` — `/authorize` no longer rejects the real Entra proxy `client_id` (fixes Copilot Studio "Manual" OAuth and Claude Desktop's "Advanced settings" static Client ID entry); `/token` no longer forwards the client's own `Authorization` header to Entra ID.
+* `nginx.conf` — adds `proxy_hide_header` for `Access-Control-Allow-Origin`/`-Headers` on the OAuth location block, removing the duplicate CORS headers that made browsers silently reject `/register` responses (this was breaking Claude Desktop's connector setup).
+* `Dockerfile` / `docker-compose.yml` — DCR client registrations are now persisted to the `dcr-data` volume so a container restart mid-login no longer produces `"Unknown client_id"` errors.
+
+Redeploy checklist:
+1. Sync files (Step 6.1) — **`git pull` covers all three; a manual copy must include `nginx.conf`, not just `src/`.**
+2. Re-copy `nginx.conf` and reload Nginx (`sudo cp nginx.conf /etc/nginx/sites-available/mxm-mcp-server && sudo nginx -t && sudo systemctl reload nginx`) — skipping this leaves the duplicate-CORS bug in place even after the container is rebuilt.
+3. `docker compose up -d --build` (without `-v`).
+4. Confirm the new volume mounted and loaded any pre-existing registrations:
+   ```bash
+   docker compose logs | grep dcr
+   ```
+   On first boot with no prior registrations this is silent; after a client has registered at least once, you should see `[dcr] Loaded N persisted client registration(s) from ...` on subsequent restarts.
+5. Re-test the connector from Copilot Studio and/or Claude Desktop end-to-end (sign-in should complete without an `invalid_client` / "Unknown client_id" error).
