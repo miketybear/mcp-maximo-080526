@@ -70,7 +70,14 @@ if (config.transport === "stdio") {
     const tenantId = config.azure.tenantId;
 
     // RFC 9728 Protected Resource Metadata
-    app.get("/.well-known/oauth-protected-resource", oauthCorsMiddleware, (_req, res) => {
+    //
+    // Per RFC 9728 §3.1, path-aware clients derive the well-known URL from the
+    // resource path — since this server's resource lives at /mcp (not root),
+    // Anthropic's cloud infrastructure requests
+    // /.well-known/oauth-protected-resource/mcp (with the /mcp suffix) as the
+    // very first discovery call. A regex route handles both the bare path and
+    // any suffix variant, same as the AS metadata route below.
+    app.get(/^\/.well-known\/oauth-protected-resource(\/.*)?$/, oauthCorsMiddleware, (_req, res) => {
       res.json({
         resource: config.azure.audience,
         authorization_servers: [config.serverBaseUrl],
