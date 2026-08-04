@@ -5,6 +5,7 @@ import express from "express";
 import { config } from "./config.js";
 import { registerAllTools } from "./tools/index.js";
 import { buildAuthMiddleware } from "./auth.js";
+import { handleRegistration, lookupClient } from "./dcr.js";
 
 const server = new McpServer(
   { name: "maximo-mcp-server", version: "0.1.0" },
@@ -67,6 +68,8 @@ if (config.transport === "stdio") {
         issuer: config.serverBaseUrl,
         authorization_endpoint: `${config.serverBaseUrl}/authorize`,
         token_endpoint: `${config.serverBaseUrl}/token`,
+        // Advertise the DCR endpoint so MCP clients can self-register (RFC 7591)
+        registration_endpoint: `${config.serverBaseUrl}/register`,
         jwks_uri: `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`,
         response_types_supported: ["code"],
         grant_types_supported: ["authorization_code", "refresh_token"],
@@ -76,9 +79,39 @@ if (config.transport === "stdio") {
       });
     });
 
+    // RFC 7591 — Dynamic Client Registration endpoint
+    // MCP clients POST here to self-register and obtain a client_id without
+    // any manual configuration. The server issues a DCR client_id and internally
+    // maps all OAuth flows through the pre-configured Entra ID proxy client.
+    app.post("/register", (req, res) => {
+      const { status, body } = handleRegistration(req.body);
+      res.status(status).json(body);
+    });
+
     // Fallback/Proxy: Redirect /authorize requests to Entra ID
+    // Swap the DCR-issued client_id for the real Entra ID proxy client_id so
+    // Entra ID recognises the client app.
     app.get("/authorize", (req, res) => {
       const queryParams = new URLSearchParams(req.query as Record<string, string>);
+
+      // Validate DCR client_id if provided — reject unknown clients early
+      const dcrClientId = queryParams.get("client_id");
+      if (dcrClientId) {
+        const registered = lookupClient(dcrClientId);
+        if (!registered) {
+          res.status(400).json({
+            error: "invalid_client",
+            error_description: `Unknown client_id "${dcrClientId}". Please re-register via POST /register.`,
+          });
+          return;
+        }
+        // Replace DCR client_id with the real Entra ID proxy client_id
+        queryParams.set("client_id", config.azure.proxyClientId);
+      } else {
+        // No client_id provided — inject the proxy client_id directly
+        queryParams.set("client_id", config.azure.proxyClientId);
+      }
+
       // Entra ID v2.0 requires a 'scope' parameter. If the MCP client omitted it,
       // default to our server's primary scope + standard OIDC scopes.
       if (!queryParams.has("scope")) {
@@ -92,10 +125,21 @@ if (config.transport === "stdio") {
     });
 
     // Fallback/Proxy: Proxy /token requests to Entra ID
+    // Injects proxy client credentials so Entra ID accepts the request even
+    // when the MCP client only knows its DCR-issued client_id (not the real one).
     app.post("/token", async (req, res) => {
       try {
         const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
         const bodyParams = new URLSearchParams(req.body as Record<string, string>);
+
+        // Remove any DCR-issued client_id / client_secret from the body — Entra ID
+        // must see the real proxy client credentials, not the ephemeral DCR ones.
+        bodyParams.delete("client_id");
+        bodyParams.delete("client_secret");
+
+        // Inject the real proxy client credentials
+        bodyParams.set("client_id", config.azure.proxyClientId);
+        bodyParams.set("client_secret", config.azure.proxyClientSecret);
 
         if (!bodyParams.has("scope")) {
           bodyParams.set(
@@ -106,9 +150,14 @@ if (config.transport === "stdio") {
 
         console.log("[auth] Proxying token request to Entra ID with params:", Array.from(bodyParams.keys()));
 
+        const fetchHeaders: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+        if (req.headers.authorization) {
+          fetchHeaders["Authorization"] = req.headers.authorization;
+        }
+
         const response = await fetch(tokenUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          headers: fetchHeaders,
           body: bodyParams.toString(),
         });
         const data = await response.json();

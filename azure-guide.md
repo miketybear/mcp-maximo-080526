@@ -138,9 +138,58 @@ AZURE_CLIENT_ID=your-server-application-client-id-here
 # Audience: The expected 'aud' claim. Must match the Server App's Application ID URI set in Step 2.
 # If not defined, it defaults to api://<AZURE_CLIENT_ID>
 AZURE_AUDIENCE=api://your-server-application-client-id-here
+
+# DCR Proxy Client — Application (client) ID and Secret of the Client App Registration (Step 3 & 4)
+# These allow the server to handle OAuth flows automatically on behalf of MCP clients.
+AZURE_PROXY_CLIENT_ID=your-client-application-client-id-here
+AZURE_PROXY_CLIENT_SECRET=your-client-application-secret-value-here
+
+# Public URL of this MCP server (required for OAuth metadata discovery)
+MCP_SERVER_BASE_URL=https://your-mcp-server-domain.com
 ```
 
 ---
+
+## Step 6a: Enable Dynamic Client Registration (DCR)
+
+With the proxy client variables set, your MCP server supports **RFC 7591 Dynamic Client Registration**. This means MCP clients (Claude Desktop, Cursor, Microsoft Copilot Studio, etc.) can connect **without the user ever manually entering a `client_id` or `client_secret`**.
+
+### How it works
+
+```
+User pastes server URL → MCP client auto-discovers OAuth metadata
+  → MCP client self-registers via POST /register (gets a temporary client_id)
+  → Server redirects /authorize → Entra ID (using the real proxy client_id)
+  → User signs in with their Entra ID account (browser popup)
+  → Server injects proxy credentials into POST /token → Entra ID
+  → Access token returned → MCP client connected
+```
+
+The user experience is: **paste URL → sign in → done.**
+
+### Prerequisite: Register redirect URIs for the Proxy Client
+
+Because all MCP clients share the underlying proxy client app registration, you must pre-register the redirect URIs of each MCP client type in Azure:
+
+1. Navigate to **Azure Portal** → **Microsoft Entra ID** → **App registrations**.
+2. Select your **Client App Registration** (Step 3 — `Maximo MCP Client`).
+3. Click **Authentication** → **Add a platform** → **Web**.
+4. Add the redirect URI(s) for the MCP clients you want to support:
+
+| MCP Client | Redirect URI |
+| :--- | :--- |
+| Claude Desktop / claude.ai | `https://claude.ai/api/mcp/auth_callback` |
+| Microsoft Copilot Studio | (provided by Copilot Studio wizard) |
+| Cursor | (check Cursor documentation) |
+
+5. Click **Save**.
+
+> [!NOTE]
+> This is a one-time admin task per MCP client type — not per user. Once a redirect URI is registered, any user in your Entra ID tenant can connect that MCP client to the server.
+
+---
+
+
 
 ## Step 7: How to Obtain and Test Access Tokens
 

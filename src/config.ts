@@ -11,6 +11,10 @@ const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || "";
 const AZURE_AUDIENCE = process.env.AZURE_AUDIENCE || `api://${AZURE_CLIENT_ID}`;
 // Canonical URI of this MCP server (used in RFC 9728 Protected Resource Metadata)
 const MCP_SERVER_BASE_URL = process.env.MCP_SERVER_BASE_URL || "";
+// Proxy client credentials — the pre-registered Entra ID Client App used by the
+// server internally to handle OAuth on behalf of dynamically registered MCP clients.
+const AZURE_PROXY_CLIENT_ID = process.env.AZURE_PROXY_CLIENT_ID || "";
+const AZURE_PROXY_CLIENT_SECRET = process.env.AZURE_PROXY_CLIENT_SECRET || "";
 
 if (!API_KEY) {
   console.warn("WARNING: API_KEY environment variable is not set.");
@@ -25,6 +29,8 @@ if (AUTH_PROVIDER === "entra-id") {
   if (!AZURE_TENANT_ID) console.warn("WARNING: AZURE_TENANT_ID is not set. Entra ID auth will fail.");
   if (!AZURE_CLIENT_ID) console.warn("WARNING: AZURE_CLIENT_ID is not set. Entra ID auth will fail.");
   if (!MCP_SERVER_BASE_URL) console.warn("WARNING: MCP_SERVER_BASE_URL is not set. OAuth metadata discovery (RFC 9728) will be incomplete.");
+  if (!AZURE_PROXY_CLIENT_ID) console.warn("WARNING: AZURE_PROXY_CLIENT_ID is not set. Dynamic Client Registration (DCR) will not work.");
+  if (!AZURE_PROXY_CLIENT_SECRET) console.warn("WARNING: AZURE_PROXY_CLIENT_SECRET is not set. Dynamic Client Registration (DCR) will not work.");
 }
 
 export const config = {
@@ -43,5 +49,8 @@ export const config = {
     tenantId: AZURE_TENANT_ID,
     clientId: AZURE_CLIENT_ID,
     audience: AZURE_AUDIENCE,
+    /** Pre-registered Client App used internally to proxy OAuth flows for DCR clients */
+    proxyClientId: AZURE_PROXY_CLIENT_ID,
+    proxyClientSecret: AZURE_PROXY_CLIENT_SECRET,
   },
 } as const;
