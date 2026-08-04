@@ -118,23 +118,25 @@ if (config.transport === "stdio") {
     app.get("/authorize", (req, res) => {
       const queryParams = new URLSearchParams(req.query as Record<string, string>);
 
-      // Validate DCR client_id if provided — reject unknown clients early
-      const dcrClientId = queryParams.get("client_id");
-      if (dcrClientId) {
-        const registered = lookupClient(dcrClientId);
-        if (!registered) {
-          res.status(400).json({
-            error: "invalid_client",
-            error_description: `Unknown client_id "${dcrClientId}". Please re-register via POST /register.`,
-          });
-          return;
-        }
-        // Replace DCR client_id with the real Entra ID proxy client_id
-        queryParams.set("client_id", config.azure.proxyClientId);
-      } else {
-        // No client_id provided — inject the proxy client_id directly
-        queryParams.set("client_id", config.azure.proxyClientId);
+      // Some MCP clients (e.g. Copilot Studio "Manual" OAuth, or Claude Desktop's
+      // "Advanced settings" static Client ID/Secret entry) are configured with the
+      // real Entra ID proxy client_id directly and never call POST /register. Only
+      // reject the request when a client_id was supplied that is neither a known
+      // DCR registration nor the real proxy client_id — otherwise always swap in
+      // the real proxy client_id so Entra ID recognises the client app.
+      const suppliedClientId = queryParams.get("client_id");
+      if (
+        suppliedClientId &&
+        suppliedClientId !== config.azure.proxyClientId &&
+        !lookupClient(suppliedClientId)
+      ) {
+        res.status(400).json({
+          error: "invalid_client",
+          error_description: `Unknown client_id "${suppliedClientId}". Please re-register via POST /register.`,
+        });
+        return;
       }
+      queryParams.set("client_id", config.azure.proxyClientId);
 
       // Entra ID v2.0 requires a 'scope' parameter. If the MCP client omitted it,
       // default to our server's primary scope + standard OIDC scopes.
@@ -174,14 +176,14 @@ if (config.transport === "stdio") {
 
         console.log("[auth] Proxying token request to Entra ID with params:", Array.from(bodyParams.keys()));
 
-        const fetchHeaders: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
-        if (req.headers.authorization) {
-          fetchHeaders["Authorization"] = req.headers.authorization;
-        }
-
+        // Note: we intentionally do NOT forward the client's own Authorization
+        // header (e.g. HTTP Basic auth carrying the ephemeral DCR client_id/secret)
+        // to Entra ID — client authentication is already handled above via the
+        // real proxy client_id/client_secret in the body. Forwarding a stale Basic
+        // auth header here would make Entra ID see conflicting/invalid credentials.
         const response = await fetch(tokenUrl, {
           method: "POST",
-          headers: fetchHeaders,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: bodyParams.toString(),
         });
         const data = await response.json();
