@@ -42,6 +42,25 @@ if (config.transport === "stdio") {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  // ---------------------------------------------------------------------------
+  // CORS middleware for OAuth / DCR endpoints
+  // MCP clients like Claude Desktop call /register, /token, and /.well-known/*
+  // cross-origin from https://claude.ai. Without CORS headers the browser blocks
+  // the response and the client reports "Couldn't register".
+  // ---------------------------------------------------------------------------
+  const oauthCorsMiddleware: express.RequestHandler = (req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    if (req.method === "OPTIONS") {
+      res.setHeader("Access-Control-Max-Age", "86400");
+      res.status(204).end();
+      return;
+    }
+    next();
+  };
+
+
   // -----------------------------------------------------------------------
   // RFC 9728 & RFC 8414 — OAuth Protected Resource & Authorization Server Metadata
   // Enables MCP clients (e.g. Claude Desktop, Cursor) to auto-discover the
@@ -51,7 +70,7 @@ if (config.transport === "stdio") {
     const tenantId = config.azure.tenantId;
 
     // RFC 9728 Protected Resource Metadata
-    app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+    app.get("/.well-known/oauth-protected-resource", oauthCorsMiddleware, (_req, res) => {
       res.json({
         resource: config.azure.audience,
         authorization_servers: [config.serverBaseUrl],
@@ -61,7 +80,7 @@ if (config.transport === "stdio") {
     });
 
     // RFC 8414 Authorization Server Metadata (proxies Entra ID metadata)
-    app.get("/.well-known/oauth-authorization-server", (_req, res) => {
+    app.get("/.well-known/oauth-authorization-server", oauthCorsMiddleware, (_req, res) => {
       res.json({
         // Per RFC 8414 Section 3, issuer MUST match the authorization server URL
         // advertised in /.well-known/oauth-protected-resource (config.serverBaseUrl)
@@ -83,7 +102,7 @@ if (config.transport === "stdio") {
     // MCP clients POST here to self-register and obtain a client_id without
     // any manual configuration. The server issues a DCR client_id and internally
     // maps all OAuth flows through the pre-configured Entra ID proxy client.
-    app.post("/register", (req, res) => {
+    app.post("/register", oauthCorsMiddleware, (req, res) => {
       const { status, body } = handleRegistration(req.body);
       res.status(status).json(body);
     });
@@ -127,7 +146,7 @@ if (config.transport === "stdio") {
     // Fallback/Proxy: Proxy /token requests to Entra ID
     // Injects proxy client credentials so Entra ID accepts the request even
     // when the MCP client only knows its DCR-issued client_id (not the real one).
-    app.post("/token", async (req, res) => {
+    app.post("/token", oauthCorsMiddleware, async (req, res) => {
       try {
         const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
         const bodyParams = new URLSearchParams(req.body as Record<string, string>);
