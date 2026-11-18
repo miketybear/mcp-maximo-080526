@@ -66,7 +66,10 @@ How to add a tool: [adding_tools_guide.md](adding_tools_guide.md). SDK v2 upgrad
 ## Deployment
 
 - Nginx vhost and log files are named `mxm-mcp-server` even though the domain is `mcp-server1` — do not "fix" the names.
-- Redeploy: pull on the server, `docker compose up -d --build`, then check `/health` and reconnect a client. Details in [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md); Entra app registration in [azure-guide.md](azure-guide.md).
+- Server folders (`~/mcp-maximo/` on the host): production runs from `mcp-maximo-v2` (SDK v2, tracks `main`). `mcp-maximo-080526` is the stopped SDK v1 deploy, kept for rollback. A major release goes in a new folder, not an in-place upgrade.
+- Both folders share `container_name` and port `127.0.0.1:3030`, so only one runs at a time. Switch by running `docker compose down` in one and `up -d` in the other; Nginx is unchanged.
+- The DCR volume is per folder (`<folder>_dcr-data`). Copy it into the new folder before the first `up`, or every client must re-register. Never use `down -v`.
+- Redeploy: in `mcp-maximo-v2`, `git pull` then `docker compose up -d --build`, then check `/health` and reconnect a client. Details in [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md); Entra app registration in [azure-guide.md](azure-guide.md).
 
 ## Git
 
