@@ -16,7 +16,12 @@ const INSTRUCTIONS =
   "2. For Purchase Orders (POs): Prefer searching using search_purchase_orders to find the exact " +
   "ponum before calling get_purchase_order. " +
   "3. For Vendors/Companies: If searching for POs by a vendor or company name, always search " +
-  "for the vendor code using search_vendor first, then use search_purchase_orders with the vendor code.";
+  "for the vendor code using search_vendor first, then use search_purchase_orders with the vendor code. " +
+  "4. For Locations (equipment tags): ALWAYS highlight Safety Critical Elements (SCE) and Production Critical Elements (PCE) " +
+  "whenever a location is shown — in text, tables or lists, mark tags that have a `critical` field in bold with its label " +
+  "(e.g. **HT-PSV-7001** ⚠️ SCE (BD-SD001 Emergency Shutdown System)), and when listing several tags state how many are SCE / PCE. " +
+  "When the user asks for a tree / hierarchy / structure, display the `tree` field returned by get_location_children or " +
+  "get_location_ancestors verbatim inside a code block (do not reformat it), followed by its legend.";
 
 /**
  * The tool list and server info only change on redeploy, so 2026-07-28 clients
