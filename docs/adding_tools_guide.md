@@ -36,6 +36,9 @@ Example: a read-only tool `search_assets` on the `mxasset` object structure.
 Use the [Maximo REST API documentation](https://ibm-maximo-dev.github.io/maximo-restapi-documentation/) or the [quick start reference](https://maximomastery.com/blog/2026/02/maximo-nextgen-rest-api-a-practical-guide-to-querying-creating-and-integrating/) to identify the object structure, the fields to select and the filters you need.
 
 ### Step 2: Define Zod schemas — `src/types/asset.ts`
+
+> Declare the input as a **raw shape** (a plain object of Zod fields), not `z.object(...)`. `defineTool` wraps it in `z.object()` for SDK v2, and `maximo-client` reuses the same shape as its parameter type.
+
 ```typescript
 import { z } from "zod";
 

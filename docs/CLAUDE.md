@@ -27,7 +27,7 @@ Tool calls hit the **real** Maximo instance in `.env` — only call read-only to
 
 | Path | Role |
 |---|---|
-| `src/index.ts` | Entry. `createServer()` builds a fresh `McpServer` **per HTTP request** (stateless Streamable HTTP) or one for stdio (`TRANSPORT=stdio`). |
+| `src/index.ts` | Entry. `createServer()` is the factory: `createMcpHandler` + `toNodeHandler` call it per HTTP request (serves spec 2025-11-25 statelessly and 2026-07-28 natively); `serveStdio` uses it for `TRANSPORT=stdio`. Also sets `cacheHints` for `tools/list`. |
 | `src/tools/define-tool.ts` | `defineTool({ name, description, inputSchema, errorLabel, run, annotations? })` — wraps result as JSON text, converts thrown errors to `isError`, defaults `readOnlyHint: true`. |
 | `src/tools/index.ts` | `tools` array = the single registry. Adding a tool = new file + one line here. |
 | `src/maximo-client.ts` | Maximo REST client. `query(objectStructure, { where, select, orderBy, limit, pageno }, zodSchema)`. |
@@ -50,7 +50,9 @@ How to add a tool: [adding_tools_guide.md](adding_tools_guide.md). SDK v2 upgrad
 - Tools are read-only. A write tool needs explicit `annotations` (`readOnlyHint: false`) and a separate client method (POST + `x-method-override: PATCH`); confirm with the user before adding one.
 - Follow the Maximo REST docs when building new queries: https://ibm-maximo-dev.github.io/maximo-restapi-documentation/
 - Stdio mode: log to `stderr` only (`console.error`); stdout is the protocol channel.
-- Zod v4 only (`zod ^4`). Input schemas are raw shapes today (SDK v1); SDK v2 will need `z.object(...)`.
+- MCP SDK v2: `@modelcontextprotocol/server` + `@modelcontextprotocol/node`, pinned to exact versions — read the changelog before bumping.
+- Zod v4 only (`zod ^4`, ≥ 4.2). Tools declare raw shapes; `defineTool` wraps them in `z.object()`.
+- `req.auth` is reserved: `toNodeHandler` forwards it as MCP `AuthInfo`. JWT claims live in `res.locals.jwtClaims`.
 
 ## OAuth / Entra ID gotchas (easy to regress)
 

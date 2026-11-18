@@ -113,7 +113,9 @@ export function createEntraIdAuthMiddleware(): express.RequestHandler {
       });
 
       // Optionally expose claims to downstream handlers via request locals
-      (req as express.Request & { auth?: typeof payload }).auth = payload;
+      // Kept on res.locals, not req.auth: the SDK's toNodeHandler forwards
+      // req.auth as an MCP AuthInfo, which a raw JWT payload is not.
+      res.locals.jwtClaims = payload;
 
       next();
     } catch (err) {
