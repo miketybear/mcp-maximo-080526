@@ -50,8 +50,21 @@ const WO_SELECT_FIELDS_DETAIL = `${WO_SELECT_FIELDS},reportdate,assetnum,schedst
 /** mxapilocation root is LOCHIERARCHY; tag attributes live in the nested LOCATIONS record. */
 const LOC_ATTR_FIELDS = "description,status,bdpocloctype,bdpoclocfunction,bdpoclocgroup,plusgpandidnumber,plusgsafetycrit,plusgcomcrit";
 const LOC_SELECT_FIELDS = `location,parent,systemid,children,locations{${LOC_ATTR_FIELDS}}`;
+/** Exact match, or `"(blank)"` (as returned by groupBy) → attribute is null (OSLC `!="*"`). */
+const eqOrBlank = (col: string, value: string) => (value === "(blank)" ? `${col}!="*"` : `${col}=${q(value)}`);
+
+/** groupBy option → LOCATIONS column. */
+const LOC_GROUP_COLUMNS = {
+  locType: "bdpocloctype",
+  locFunction: "bdpoclocfunction",
+  sceGroup: "bdpoclocgroup",
+  status: "status",
+  sce: "plusgsafetycrit",
+  pce: "plusgcomcrit",
+} as const;
+
 /** Legend returned with every rendered tree. */
-const TREE_LEGEND = "[SCE <group>] = Safety Critical Element, [PCE] = Production Critical Element, ▸ = has more children (call get_location_children on it)";
+const TREE_LEGEND = "🔴 SCE <group> = Safety Critical Element · 🟡 PCE = Production Critical Element · ▸ = has more children (call get_location_children on it)";
 /** Safety cap for get_location_ancestors (one Maximo request per level). */
 const LOC_MAX_ANCESTOR_LEVELS = 12;
 
@@ -72,22 +85,33 @@ function locAttributes(loc: LocationAttrs) {
 }
 
 /**
- * Highlight label for SCE / PCE tags, e.g. "⚠️ SCE (BD-SD001 Emergency Shutdown System) + PCE".
+ * Colour markers for critical tags. Chat clients (Claude, ChatGPT, Copilot) render Markdown
+ * without text colour — HTML/LaTeX colour is stripped or shown raw — so colour is carried by
+ * emoji, which keep the same colour and contrast on light and dark themes.
+ */
+const SCE_MARK = "🔴"; // red    = Safety Critical Element
+const PCE_MARK = "🟡"; // yellow = Production Critical Element
+
+/**
+ * Highlight label for SCE / PCE tags, e.g. "🔴 SCE (BD-SD001 Emergency Shutdown System) · 🟡 PCE".
  * Undefined for non-critical tags so the LLM can spot critical ones at a glance.
  */
 function criticalLabel(loc: LocationAttrs): string | undefined {
   const parts: string[] = [];
   if (loc.plusgsafetycrit) {
     const group = [loc.bdpoclocgroup, loc.bdpoclocgroup_description].filter(Boolean).join(" ");
-    parts.push(group ? `SCE (${group})` : "SCE");
+    parts.push(`${SCE_MARK} SCE${group ? ` (${group})` : ""}`);
   }
-  if (loc.plusgcomcrit) parts.push("PCE");
-  return parts.length ? `⚠️ ${parts.join(" + ")}` : undefined;
+  if (loc.plusgcomcrit) parts.push(`${PCE_MARK} PCE`);
+  return parts.length ? parts.join(" · ") : undefined;
 }
 
-/** Short marker used inside text trees: "[SCE BD-SD001][PCE]". */
+/** Short marker at the end of a tree line: "🔴 SCE BD-SD001 🟡 PCE". */
 function treeMarker(n: LocationNode): string {
-  return (n.sce ? `[SCE${n.sceGroup ? ` ${n.sceGroup}` : ""}]` : "") + (n.pce ? "[PCE]" : "");
+  return [
+    n.sce && `${SCE_MARK} SCE${n.sceGroup ? ` ${n.sceGroup}` : ""}`,
+    n.pce && `${PCE_MARK} PCE`,
+  ].filter(Boolean).join(" ");
 }
 
 function treeLine(n: LocationNode): string {
@@ -440,23 +464,25 @@ export const maximoClient = {
     return this.query("mxapilocation", { ...query, select: LOC_SELECT_FIELDS }, LocHierarchyCollectionSchema);
   },
 
-  async searchLocations(input: SearchLocationsInput): Promise<{ responseInfo: ReturnType<typeof pagingInfo>; member: LocationNode[] }> {
-    const { location, description, locType, locFunction, sce, pce, sceGroup, systemid, includeDecommissioned, limit = 20, pageno } = input;
+  async searchLocations(input: SearchLocationsInput) {
+    const { location, description, locType, locFunction, sce, pce, sceGroup, groupBy, systemid, includeDecommissioned, limit = 20, pageno } = input;
     if (!location && !description && !locType && !locFunction && sce === undefined && pce === undefined && !sceGroup) {
       throw new Error("Provide at least one of: location, description, locType, locFunction, sce, pce, sceGroup");
     }
     // LOCATIONS-rooted structure: attribute filters work at root level here.
-    const res = await this.query("mxapioperloc", {
-      where: [
+    const where = [
         location && `location=${like(location)}`,
         description && `description=${like(description)}`,
-        locType && `bdpocloctype=${q(locType)}`,
-        locFunction && `bdpoclocfunction=${q(locFunction)}`,
+        locType && eqOrBlank("bdpocloctype", locType),
+        locFunction && eqOrBlank("bdpoclocfunction", locFunction),
         sce !== undefined && `plusgsafetycrit=${sce ? 1 : 0}`,
         pce !== undefined && `plusgcomcrit=${pce ? 1 : 0}`,
-        sceGroup && `bdpoclocgroup=${q(sceGroup)}`,
+        sceGroup && eqOrBlank("bdpoclocgroup", sceGroup),
         !includeDecommissioned && `status!="DECOMMISSIONED"`,
-      ],
+    ];
+    if (groupBy) return this.groupLocations(where, groupBy);
+    const res = await this.query("mxapioperloc", {
+      where,
       select: `location,${LOC_ATTR_FIELDS},lochierarchy{parent,systemid,children}`,
       orderBy: "+location",
       limit,
@@ -474,6 +500,30 @@ export const maximoClient = {
           hasChildren: h?.children,
         };
       }),
+    };
+  },
+
+  /** Server-side group-by count (Maximo `gbcols=...,count.*`), largest group first. */
+  async groupLocations(where: (string | false | undefined)[], groupBy: (keyof typeof LOC_GROUP_COLUMNS)[]) {
+    const cols = [...new Set(groupBy)].map((g) => LOC_GROUP_COLUMNS[g]);
+    const raw = await this.fetchMaximo("/api/os/mxapioperloc", {
+      "oslc.where": where.filter(Boolean).join(" and ") || undefined,
+      gbcols: `${cols.join(",")},count.*`,
+      gbsortby: "-count.*",
+    });
+    if (!Array.isArray(raw)) throw new Error("Unexpected group-by response from Maximo");
+    const groups = raw.map((row: Record<string, unknown>) => {
+      const g: Record<string, unknown> = {};
+      for (const key of new Set(groupBy)) g[key] = row[LOC_GROUP_COLUMNS[key]] ?? "(blank)";
+      if (groupBy.includes("sceGroup") && row.bdpoclocgroup_description) g.sceGroupDescription = row.bdpoclocgroup_description;
+      g.count = Number(row.count ?? 0);
+      return g;
+    });
+    return {
+      groupBy,
+      totalCount: groups.reduce((n, g) => n + (g.count as number), 0),
+      groupCount: groups.length,
+      groups,
     };
   },
 

@@ -13,7 +13,7 @@ export const getLocationChildren = defineTool({
     "Each node has hasChildren; drill down by calling again on a child with hasChildren=true. " +
     "depth 2–3 returns grandchildren in one call — use only for small sub-trees (one pump or skid). " +
     "childrenTruncated=true means more children exist than limit; raise limit or use search_locations with parent. " +
-    "Response: `tree` is a ready-to-display text tree (├── / └──) with [SCE <group>] / [PCE] markers — show it verbatim in a code block when the user wants a tree; `root` holds the same data as JSON. " +
+    "Response: `tree` is a ready-to-display text tree (├── / └──) with 🔴 SCE <group> / 🟡 PCE markers — show it verbatim in a code block when the user wants a tree; `root` holds the same data as JSON. " +
     "Requires the exact tag; use search_locations first if unsure.",
   inputSchema: GetLocationChildrenInputSchema,
   errorLabel: "Error getting location children",

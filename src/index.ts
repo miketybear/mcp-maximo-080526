@@ -18,8 +18,11 @@ const INSTRUCTIONS =
   "3. For Vendors/Companies: If searching for POs by a vendor or company name, always search " +
   "for the vendor code using search_vendor first, then use search_purchase_orders with the vendor code. " +
   "4. For Locations (equipment tags): ALWAYS highlight Safety Critical Elements (SCE) and Production Critical Elements (PCE) " +
-  "whenever a location is shown — in text, tables or lists, mark tags that have a `critical` field in bold with its label " +
-  "(e.g. **HT-PSV-7001** ⚠️ SCE (BD-SD001 Emergency Shutdown System)), and when listing several tags state how many are SCE / PCE. " +
+  "whenever a location is shown. Colour code: 🔴 red = SCE, 🟡 yellow = PCE. Tags with a `critical` field are SCE and/or PCE: " +
+  "write the tag in bold followed by the `critical` label exactly as returned " +
+  "(e.g. **HT-PSV-7001** 🔴 SCE (BD-PC007 Relief Systems), **HT-P-4415C** 🟡 PCE); in tables put the label in its own column. " +
+  "Use only these emoji for colour — do not use HTML <span>/<font>, LaTeX \color or other colour markup, which most chat clients " +
+  "strip or show as raw text. When listing several tags state how many are SCE / PCE. " +
   "When the user asks for a tree / hierarchy / structure, display the `tree` field returned by get_location_children or " +
   "get_location_ancestors verbatim inside a code block (do not reformat it), followed by its legend.";
 

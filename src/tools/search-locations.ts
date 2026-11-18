@@ -15,7 +15,9 @@ export const searchLocations = defineTool({
     "Each result has location (tag), description, parent, status, locType (Pump, Motor, Valves, Transmitter...), locFunction, " +
     "pidNumber (P&ID drawing), sce, sceGroup + sceGroupDescription (e.g. BD-SD001 Emergency Shutdown System), pce " +
     "and hasChildren (parent/hasChildren refer to systemid, default PRIMARY). Decommissioned tags are hidden unless includeDecommissioned=true. " +
-    "Tags with a `critical` field are SCE and/or PCE — always highlight them (bold + label) when presenting results. " +
+    "Tags with a `critical` field are SCE and/or PCE — always highlight them when presenting results: bold tag + the `critical` label as returned (🔴 SCE, 🟡 PCE). " +
+    "For large result sets (responseInfo.totalCount above ~100) do NOT page through everything: tell the user the total and call again with groupBy " +
+    "(e.g. ['locType']) to show a breakdown, then list the group the user picks. With groupBy the response is { totalCount, groups[{..., count}] } sorted by count. " +
     "Pagination: responseInfo has totalCount, totalPages and pagenum; call again with the same filters and pageno to get another page.",
   inputSchema: SearchLocationsInputSchema,
   errorLabel: "Error searching locations",
