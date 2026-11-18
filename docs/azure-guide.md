@@ -2,7 +2,7 @@
 
 This guide details the step-by-step process of registering applications in Microsoft Entra ID (formerly Azure Active Directory) to secure the Maximo MCP Server.
 
-Secure communication is achieved using OAuth 2.0. The MCP Server acts as the **Resource Server (API)** that validates incoming JSON Web Tokens (JWTs), and client applications (e.g. Cursor, Claude, scripts) act as **Clients** that fetch tokens from Microsoft Entra ID.
+Secure communication is achieved using OAuth 2.0. The MCP Server acts as the **Resource Server (API)** that validates incoming JSON Web Tokens (JWTs), and client applications (e.g. Claude, ChatGPT, Cursor, scripts) act as **Clients** that fetch tokens from Microsoft Entra ID.
 
 ---
 
@@ -152,7 +152,7 @@ MCP_SERVER_BASE_URL=https://your-mcp-server-domain.com
 
 ## Step 6a: Enable Dynamic Client Registration (DCR)
 
-With the proxy client variables set, your MCP server supports **RFC 7591 Dynamic Client Registration**. This means MCP clients (Claude Desktop, Cursor, Microsoft Copilot Studio, etc.) can connect **without the user ever manually entering a `client_id` or `client_secret`**.
+With the proxy client variables set, your MCP server supports **RFC 7591 Dynamic Client Registration**. This means MCP clients (Claude, ChatGPT, Cursor, etc.) can connect **without the user ever manually entering a `client_id` or `client_secret`**.
 
 ### How it works
 
@@ -179,7 +179,7 @@ Because all MCP clients share the underlying proxy client app registration, you 
 | MCP Client | Redirect URI |
 | :--- | :--- |
 | Claude Desktop / claude.ai | `https://claude.ai/api/mcp/auth_callback` |
-| Microsoft Copilot Studio | (provided by Copilot Studio wizard) |
+| ChatGPT | `https://chatgpt.com/connector_platform_oauth_redirect` or the per-connector URL ChatGPT shows (see ChatGPT section) |
 | Cursor | (check Cursor documentation) |
 
 5. Click **Save**.
@@ -255,43 +255,51 @@ The server should respond with `200 OK` and return the list of tools.
 
 ---
 
-## Integrating with Microsoft Copilot Studio
+## Integrating with ChatGPT (Custom MCP Connector)
 
-When adding your Maximo MCP Server as a custom tool in **Microsoft Copilot Studio**, you will be prompted to configure OAuth 2.0 authentication. 
-
-Follow these steps to configure Copilot Studio to authenticate against your Entra ID setup:
-
-### Step 1: Configure OAuth 2.0 in Copilot Studio
-
-In the **Add a Model Context Protocol server** wizard in Copilot Studio:
-1. Select **OAuth 2.0** as the Authentication method.
-2. Select **Manual** as the Type.
-3. Fill in the fields using the table below:
-
-| Field Name | Value to Input | Source |
-| :--- | :--- | :--- |
-| **Client ID** | The **Application (client) ID** of your **Client App Registration** | Step 3 |
-| **Client secret** | The **Client Secret Value** (Client Key) of your **Client App Registration** | Step 4 |
-| **Authorization URL** | `https://login.microsoftonline.com/<YOUR_AZURE_TENANT_ID>/oauth2/v2.0/authorize` | Step 1 |
-| **Token URL template** | `https://login.microsoftonline.com/<YOUR_AZURE_TENANT_ID>/oauth2/v2.0/token` | Step 1 |
-| **Refresh URL** | `https://login.microsoftonline.com/<YOUR_AZURE_TENANT_ID>/oauth2/v2.0/token` | Step 1 |
-| **Scopes** | `api://<YOUR_SERVER_CLIENT_ID>/mcp.access offline_access` | Step 2 |
+ChatGPT can connect to remote MCP servers as a **custom connector** (Developer mode). It uses the same OAuth flow as Claude: it reads the server's OAuth metadata, self-registers via `POST /register` (DCR), then sends the user to Entra ID through `/authorize`. No Client ID or secret has to be typed in.
 
 > [!NOTE]
-> The `offline_access` scope is required so Microsoft Copilot Studio can request refresh tokens and keep the connection active without prompting users to log in repeatedly.
+> Like Claude, ChatGPT connects from **OpenAI's cloud**, so the MCP server must be reachable from the public internet. Custom connectors require a plan that allows Developer mode, and on Business/Enterprise workspaces an admin may need to enable it.
 
-### Step 2: Register the Copilot Studio Redirect URL in Azure
+### Step 1: Register the ChatGPT Redirect URI in Azure
 
-Once Copilot Studio generates the **Redirect URL** (shown at the bottom of the modal):
+1. In ChatGPT, start creating the connector (Step 2 below) and copy the **callback / redirect URL** ChatGPT shows. Depending on the ChatGPT version it is either
+   - `https://chatgpt.com/connector_platform_oauth_redirect` (fixed, older connectors), or
+   - `https://chatgpt.com/connector/oauth/<callback-id>` (per connector).
+2. Go to **Azure Portal** → **Microsoft Entra ID** → **App registrations** → your **Client App Registration** (`Maximo MCP Client`, Step 3).
+3. **Authentication** → **Add a platform** (or **Add URI** if Web already exists) → **Web**.
+4. Paste the exact URL from ChatGPT. Registering `https://chatgpt.com/connector_platform_oauth_redirect` as well does no harm.
+5. Click **Save**.
 
-1. **Copy the Redirect URL** from Copilot Studio.
-2. Navigate to the **Azure Portal** > **Microsoft Entra ID** > **App registrations**.
-3. Select your **Client App Registration** (e.g., `Maximo MCP Client`).
-4. Click **Authentication** in the left navigation menu.
-5. Click **Add a platform** and select **Web**.
-6. Paste the copied **Redirect URL** into the field.
-7. Click **Configure** / **Save**.
-8. Go back to Copilot Studio and complete the wizard to save the MCP server.
+> [!IMPORTANT]
+> Entra ID compares redirect URIs exactly. If sign-in fails with `AADSTS50011` (redirect URI mismatch), copy the `redirect_uri` from the error page and add it here.
+
+### Step 2: Add the Connector in ChatGPT
+
+1. Open [chatgpt.com](https://chatgpt.com) → **Settings** → **Apps & Connectors** → **Advanced settings** → enable **Developer mode**.
+2. Back in **Apps & Connectors**, click **Create** (in newer ChatGPT versions: **Plugins** → **+** → **Add custom MCP server**).
+3. Fill in:
+
+| Field | Value |
+| :--- | :--- |
+| **Name** | `Maximo` |
+| **Description** | e.g. `Work Orders, Purchase Orders, Vendors, Budget & Exchange Rates from Maximo` |
+| **MCP Server URL** | `https://your-mcp-server-domain.com/mcp` |
+| **Authentication** | **OAuth** (leave Client ID / Secret empty — the server supports DCR) |
+
+4. Tick **I trust this application** and click **Create**.
+5. ChatGPT opens the Microsoft sign-in page; sign in with your Entra ID account.
+6. In a chat, enable the connector from the **+** menu (Developer mode / connectors) and ask e.g. *"Find open work orders for tag HT-PM-4415C"*.
+
+### Troubleshooting
+
+| Symptom | Cause / Fix |
+| :--- | :--- |
+| ChatGPT says it cannot find OAuth metadata | Check `MCP_SERVER_BASE_URL` and that `https://<domain>/.well-known/oauth-authorization-server/mcp` returns 200 |
+| `invalid_client` / "Unknown client_id" | ChatGPT reused a registration from before a server reset — delete and re-create the connector so it registers again |
+| `AADSTS50011` redirect URI mismatch | Add the exact redirect URI from the error to the Client App Registration (Step 1) |
+| Connected but tools fail with 401 | Token audience mismatch — check `AZURE_AUDIENCE` equals the Server App's Application ID URI |
 
 ---
 
@@ -334,7 +342,7 @@ This method uses the full MCP Authorization flow (OAuth 2.1 + PKCE) via Entra ID
 8. Once authenticated, enable the connector in your chat via the **+** button > **Connectors**.
 
 > [!IMPORTANT]
-> If Claude prompts for a redirect URL, copy it and register it in your Client App Registration under **Authentication** > **Add a platform** > **Web** (same as Step 2 in the Copilot Studio section above).
+> If Claude prompts for a redirect URL, copy it and register it in your Client App Registration under **Authentication** > **Add a platform** > **Web** (same as Step 1 in the ChatGPT section above).
 
 ### Option B: Static API Key Authentication
 

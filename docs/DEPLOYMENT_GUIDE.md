@@ -330,4 +330,4 @@ Redeploy checklist:
    docker compose logs | grep dcr
    ```
    On first boot with no prior registrations this is silent; after a client has registered at least once, you should see `[dcr] Loaded N persisted client registration(s) from ...` on subsequent restarts.
-5. Re-test the connector from Copilot Studio and/or Claude Desktop end-to-end (sign-in should complete without an `invalid_client` / "Unknown client_id" error).
+5. Re-test the connector from Claude and/or ChatGPT end-to-end (sign-in should complete without an `invalid_client` / "Unknown client_id" error).

@@ -1,215 +1,143 @@
 # Guide to Adding New Tools to Maximo MCP Server
 
-This guide describes the modular, registry-based architecture of the Maximo MCP Server and provides a step-by-step workflow for adding new tools.
+This guide describes the registry-based architecture of the Maximo MCP Server and the step-by-step workflow for adding new tools.
 
 ---
 
 ## 🏗️ Architectural Overview
 
-The server uses a highly modular structure to decouple tool definitions, API calling logic, validation schemas, and server startup.
-
 ```mermaid
 graph TD
-    A[src/index.ts] -->|Starts Server & Registers| B[src/tools/index.ts]
-    B -->|Calls register on each tool| C[src/tools/get-work-order.ts]
-    B -->|Calls register on each tool| D[src/tools/search-work-orders.ts]
-    B -->|Calls register on each tool| E[src/tools/your-new-tool.ts]
-    
+    A[src/index.ts] -->|createServer per request| B[src/tools/index.ts — tools array]
+    B --> C[src/tools/get-work-order.ts]
+    B --> D[src/tools/search-work-orders.ts]
+    B --> E[src/tools/your-new-tool.ts]
+    C & D & E -->|built with| T[src/tools/define-tool.ts]
     C & D & E -->|Invokes API| F[src/maximo-client.ts]
-    F -->|Validates JSON with| G[src/types/index.ts]
+    F -->|Validates JSON with| G[src/types/]
     F -->|Calls Upstream API| H[Maximo REST API]
 ```
 
 ### Key Files
-1. **[src/index.ts](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/index.ts)**: Configures the core `McpServer` instance, binds the Streamable HTTP transport, and listens for requests.
-2. **[src/tools/index.ts](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/tools/index.ts)**: The tool registry. It exports a single `registerAllTools(server)` function that brings together all separate tool files.
-3. **[src/maximo-client.ts](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/maximo-client.ts)**: The central client for calling the Maximo REST API. It handles header authentication (via API keys), Lean mode (`lean=1`), and query formatting.
-4. **[src/types/](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/types/)**: Domain-level types and Zod schemas used to validate inputs/outputs.
+1. **[src/index.ts](../src/index.ts)**: Creates a fresh `McpServer` per HTTP request (stateless Streamable HTTP) or one for stdio, and registers all tools.
+2. **[src/oauth-proxy.ts](../src/oauth-proxy.ts)**: OAuth discovery + Entra ID proxy endpoints (only when `AUTH_PROVIDER=entra-id`). You do not touch this when adding tools.
+3. **[src/tools/define-tool.ts](../src/tools/define-tool.ts)**: `defineTool({...})` helper. It formats the result as JSON text, catches errors into `isError: true` results, and sets `readOnlyHint: true` by default.
+4. **[src/tools/index.ts](../src/tools/index.ts)**: The `tools` array — the single list of tools the server exposes. The startup log prints the tool names from this array automatically.
+5. **[src/maximo-client.ts](../src/maximo-client.ts)**: The Maximo REST client. `query(objectStructure, { where, select, orderBy, limit, pageno }, schema)` runs an OSLC query and validates the response; `q()` / `like()` quote user values safely.
+6. **[src/types/](../src/types/)**: Zod input schemas (shared by tool + client) and response schemas.
 
 ---
 
-## 🔄 Step-by-Step Flow to Add a New Tool
+## 🔄 Step-by-Step: Adding a New Tool
 
-To illustrate the flow, let's walk through adding a hypothetical tool called `update_work_order_status`.
+Example: a read-only tool `search_assets` on the `mxasset` object structure.
 
-### Step 1: Locate API Resource Definitions
-Refer to the [Maximo REST API Documentation](https://ibm-maximo-dev.github.io/maximo-restapi-documentation/) or [Quick Start Reference](https://maximomastery.com/blog/2026/02/maximo-nextgen-rest-api-a-practical-guide-to-querying-creating-and-integrating/) to identify:
-* The target Object Structure (e.g., `MXWODETAIL`).
-* The HTTP Method (e.g., `POST` or `PATCH` for updates).
-* Necessary headers (e.g., `x-method-override: PATCH` or custom headers for status changes).
+### Step 1: Locate the API resource
+Use the [Maximo REST API documentation](https://ibm-maximo-dev.github.io/maximo-restapi-documentation/) or the [quick start reference](https://maximomastery.com/blog/2026/02/maximo-nextgen-rest-api-a-practical-guide-to-querying-creating-and-integrating/) to identify the object structure, the fields to select and the filters you need.
 
-For work order status updates in Maximo NextGen REST API, you typically perform a `POST` to the specific work order resource url or modify the parent collection with a specific `x-method-override: PATCH` or by invoking actions.
-
-### Step 2: Define Zod Input & Output Schemas
-Define any schemas inside your types directory.
-
-1. **Open [src/types/work-order.ts](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/types/work-order.ts)** (or create a new domain type file if adding completely new models like Assets or Locations).
-2. **Add your new schema(s)**:
-   ```typescript
-   // Input schema for updating work order status
-   export const UpdateWorkOrderStatusInputSchema = z.object({
-     wonum: z.string().describe("The work order number to update"),
-     status: z.enum(WO_STATUS).describe("The new status to apply"),
-     siteid: z.string().optional().describe("Site ID (e.g., BD1)"),
-     memo: z.string().optional().describe("An optional status change remark/memo"),
-   });
-
-   export type UpdateWorkOrderStatusInput = z.infer<typeof UpdateWorkOrderStatusInputSchema>;
-   ```
-3. **Export them from [src/types/index.ts](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/types/index.ts)**:
-   ```typescript
-   export {
-     SearchWorkOrdersInputSchema,
-     WorkOrderSchema,
-     WorkOrderCollectionSchema,
-     UpdateWorkOrderStatusInputSchema, // Add this
-   } from "./work-order.js";
-   
-   export type {
-     SearchWorkOrdersInput,
-     WorkOrder,
-     WorkOrderCollection,
-     UpdateWorkOrderStatusInput, // Add this
-   } from "./work-order.js";
-   ```
-
-### Step 3: Extend the Maximo Client
-Open **[src/maximo-client.ts](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/maximo-client.ts)** and implement a method to make the HTTP call.
-
-```typescript
-import type { UpdateWorkOrderStatusInput } from "./types/index.js";
-
-// Add inside maximoClient:
-async updateWorkOrderStatus(input: UpdateWorkOrderStatusInput): Promise<any> {
-  const { wonum, status, siteid, memo } = input;
-  
-  // Example implementation: posting a status change action
-  // Maximo standard often uses a specialized POST/PATCH with properties
-  const url = `/api/os/mxwodetail`;
-  
-  // Get the target record first or execute a PATCH
-  // Assuming a standard PATCH structure:
-  const params: Record<string, string> = {
-    "oslc.where": `wonum="${wonum}"` + (siteid ? ` and siteid="${siteid}"` : ""),
-  };
-  
-  // Adjust endpoint, headers, and body according to Maximo REST specifications
-  // For standard status changes, Maximo has various mechanisms (e.g. actions, or modifying status field directly)
-  // Let's assume a PATCH update to status field:
-  const targetUrl = new URL(`${config.baseUrl}${url}`);
-  targetUrl.searchParams.append("lean", "1");
-  Object.entries(params).forEach(([k, v]) => targetUrl.searchParams.append(k, v));
-
-  const response = await fetch(targetUrl.toString(), {
-    method: "POST", // Standard Maximo PATCH via POST override
-    headers: {
-      "apikey": config.apiKey,
-      "x-method-override": "PATCH",
-      "properties": "wonum,status",
-    },
-    body: JSON.stringify({
-      status,
-      statusdesc: memo || "Updated via Maximo MCP Server",
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "Unknown error");
-    throw new Error(`Maximo status update failed: ${response.statusText} - ${errorText}`);
-  }
-
-  return response.json();
-}
-```
-
-### Step 4: Create the Tool Registration Module
-Create a new file in **[src/tools/](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/tools/)**, e.g., `update-work-order-status.ts`.
-
+### Step 2: Define Zod schemas — `src/types/asset.ts`
 ```typescript
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { maximoClient } from "../maximo-client.js";
-import { WO_STATUS } from "../types/work-order.js";
 
-/**
- * Registers the update_work_order_status tool on the MCP server.
- */
-export function register(server: McpServer) {
-  server.registerTool(
-    "update_work_order_status",
-    {
-      description: "Change the status of a specific Maximo Work Order (e.g., to APPR, INPRG, COMP, or CLOSE).",
-      inputSchema: {
-        wonum: z.string().describe("The exact Work Order number to update"),
-        status: z.enum(WO_STATUS).describe("The new status to transition the Work Order to"),
-        siteid: z.string().optional().describe("Optional site ID (e.g. BD1)"),
-        memo: z.string().optional().describe("An optional description/memo explaining why the status is being changed"),
-      },
-    },
-    async ({ wonum, status, siteid, memo }) => {
-      try {
-        const result = await maximoClient.updateWorkOrderStatus({
-          wonum,
-          status,
-          siteid,
-          memo,
-        });
+/** Input shape: used as the tool's inputSchema AND the client method's param type. */
+export const SearchAssetsInputSchema = {
+  assetnum: z.string().optional().describe("Asset number (partial match). Example: 'P-1001'"),
+  location: z.string().optional().describe("Equipment tag / location (partial match)"),
+  limit: z.number().int().min(1).max(100).default(10).describe("Maximum number of records to return"),
+  pageno: z.number().int().min(1).optional().describe("Page number to retrieve (default 1)"),
+};
+export type SearchAssetsInput = z.infer<z.ZodObject<typeof SearchAssetsInputSchema>>;
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Successfully updated Work Order ${wonum} to status ${status}.\nResponse:\n${JSON.stringify(result, null, 2)}`,
-            },
-          ],
-        };
-      } catch (e: any) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: `Failed to update status for work order ${wonum}: ${e.message}`,
-            },
-          ],
-        };
-      }
-    }
-  );
-}
+export const AssetCollectionSchema = z.object({
+  member: z.array(z.object({
+    assetnum: z.string().optional(),
+    description: z.string().optional(),
+    location: z.string().optional(),
+    status: z.string().optional(),
+  }).passthrough()),
+  responseInfo: z.any().optional(),
+});
+export type AssetCollection = z.infer<typeof AssetCollectionSchema>;
 ```
+Then re-export the schemas and types from [src/types/index.ts](../src/types/index.ts).
 
-### Step 5: Register the Tool in the Registry Index
-Open **[src/tools/index.ts](file:///d:/OneDrive/BienDong/project/mcp-maximo-080526/src/tools/index.ts)** and wire it up:
+### Step 3: Add a client method — `src/maximo-client.ts`
+Use the shared `query()` helper. **Always wrap user-supplied values with `q()` (exact) or `like()` (contains)** — never interpolate them directly into `oslc.where`.
 
 ```typescript
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { register as registerSearchWorkOrders } from "./search-work-orders.js";
-import { register as registerGetWorkOrder } from "./get-work-order.js";
-import { register as registerUpdateWorkOrderStatus } from "./update-work-order-status.js"; // 1. Import new tool
-
-export function registerAllTools(server: McpServer): void {
-  registerSearchWorkOrders(server);
-  registerGetWorkOrder(server);
-  registerUpdateWorkOrderStatus(server); // 2. Call registration function
-
-  console.log("[registry] Registered 3 tool(s): search_work_orders, get_work_order, update_work_order_status");
-}
+async searchAssets(input: SearchAssetsInput): Promise<AssetCollection> {
+  const { assetnum, location, limit = 10, pageno } = input;
+  return this.query("mxasset", {
+    where: [
+      assetnum && `assetnum=${like(assetnum)}`,
+      location && `location=${like(location)}`,
+    ],                       // falsy entries are skipped, the rest joined with " and "
+    select: "assetnum,description,location,status",
+    orderBy: "+assetnum",
+    limit,
+    pageno,
+  }, AssetCollectionSchema);
+},
 ```
 
-### Step 6: Validate Your Setup
-Compile and run the server to make sure everything type-checks and executes without issues:
+### Step 4: Define the tool — `src/tools/search-assets.ts`
+```typescript
+import { maximoClient } from "../maximo-client.js";
+import { SearchAssetsInputSchema } from "../types/index.js";
+import { defineTool } from "./define-tool.js";
 
+export const searchAssets = defineTool({
+  name: "search_assets",
+  description:
+    "Search Maximo Assets by asset number or location tag (partial match). " +
+    "Pagination: call again with pageno to fetch another page.",
+  inputSchema: SearchAssetsInputSchema,
+  errorLabel: "Error searching assets",
+  run: (args) => maximoClient.searchAssets(args),
+});
+```
+`run` just returns data — no `try/catch`, no `JSON.stringify`, no `content` array. Return a reshaped object if the raw response needs unwrapping (see [get-work-order.ts](../src/tools/get-work-order.ts)). `errorLabel` can also be a function of the args, e.g. `({ ponum }) => \`Error fetching purchase order ${ponum}\``.
+
+### Step 5: Register it — `src/tools/index.ts`
+```typescript
+import { searchAssets } from "./search-assets.js";
+
+export const tools: Tool[] = [
+  // ...existing tools
+  searchAssets,
+];
+```
+
+### Step 6: Validate
 ```powershell
-# Compile the TypeScript files to check for errors
 npm run build
 ```
+Then start the server and confirm the new tool appears in the `[registry]` startup log line and in `tools/list`.
+
+---
+
+## ✍️ Tools That Write to Maximo
+
+`defineTool` marks tools `readOnlyHint: true` by default. For a tool that creates or updates records, pass explicit annotations so clients can ask the user for confirmation:
+
+```typescript
+export const updateWorkOrderStatus = defineTool({
+  name: "update_work_order_status",
+  description: "Change the status of a specific Maximo Work Order.",
+  inputSchema: UpdateWorkOrderStatusInputSchema,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  errorLabel: ({ wonum }) => `Failed to update status for work order ${wonum}`,
+  run: (args) => maximoClient.updateWorkOrderStatus(args),
+});
+```
+`fetchMaximo` only performs GET requests today, so a write tool needs its own client method that sends `POST` with the `x-method-override: PATCH` header and the `apikey` header, per the Maximo REST documentation.
 
 ---
 
 ## ⚡ Pro Tips for High-Quality Tools
 
-* **Rich Schema Descriptions**: The `McpServer` exposes schema `.describe()` metadata directly to the LLM. Clear descriptions in your Zod schemas dramatically improve accuracy when Copilot Studio or Claude invokes the tool.
-* **Keep Schemas Lean**: Only select fields you actually need inside `oslc.select` to avoid heavy payload transfers and improve execution speed.
-* **Informative Responses**: When return results are large or nested, return clean markdown or concise, stringified JSON so the model can read it easily.
-* **Graceful Errors**: Always wrap the handler body with a `try/catch` and return `isError: true` so the client understands the request failed instead of crashing the server transport.
+* **Rich schema descriptions**: `.describe()` text is sent to the LLM. Clear descriptions and examples dramatically improve tool selection in Claude and ChatGPT.
+* **Keep `oslc.select` lean**: select only the fields you need to keep payloads small and fast.
+* **Safe queries**: every user value in `where` goes through `q()` or `like()`.
+* **Don't re-implement error handling**: let `run` throw; `defineTool` converts it into an `isError: true` result.
+* **Watch the tool count**: as the list grows past ~25–30 tools, prefer merging similar search/get tools or richer filters over adding near-duplicates, so the model can still pick the right tool.
