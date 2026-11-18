@@ -76,25 +76,28 @@ Checklist cho [PLAN.md](PLAN.md). Đánh dấu `[x]` khi xong; ghi chú phát hi
 
 ## Giai đoạn 5 — Kiểm thử
 
-**Local, `AUTH_PROVIDER=static`:**
-- [ ] `tools/list` đủ 10 tool
-- [ ] 3 tool call baseline cho kết quả giống hệt
-- [ ] 4–5 request song song trả đúng `id` của mình
-- [ ] Giá trị có dấu `"` trong filter không chèn thêm điều kiện được (kiểm tra URL upstream trong log)
-- [ ] Không token → 401
+**Local, `AUTH_PROVIDER=static`** (chạy ở Giai đoạn 2–4, lặp lại trên image Docker):
+- [x] `tools/list` đủ 10 tool
+- [x] 3 tool call baseline + ca lỗi cho kết quả giống hệt v1
+- [x] 5 request song song trả đúng `id` của mình
+- [x] Giá trị có dấu `"` trong filter không chèn thêm điều kiện được (kiểm tra URL upstream)
+- [x] Không token → 401
 
-**Local, `AUTH_PROVIDER=entra-id`** (đặt `DCR_STORE_PATH` ra file tạm):
-- [ ] `/.well-known/oauth-protected-resource/mcp` và `/.well-known/oauth-authorization-server/mcp` → 200, nội dung giống baseline
-- [ ] `OPTIONS` các route OAuth → 204 + `Access-Control-Allow-Origin`
-- [ ] `POST /register` → 201 + `client_id`
-- [ ] `/authorize` client đã đăng ký → 302 sang Entra, `client_id` = proxy client
-- [ ] `/authorize` client lạ → 400 `invalid_client`
-- [ ] `/token` code giả → Entra trả `invalid_grant`
-- [ ] `/mcp` không token / token giả → 401 + `WWW-Authenticate`
+**Local, `AUTH_PROVIDER=entra-id`** (`scripts/migration/oauth-check.sh`, so với `docs/baseline/v1/oauth.txt` → **giống hệt**):
+- [x] `/.well-known/oauth-protected-resource/mcp` và `/.well-known/oauth-authorization-server/mcp` → 200, nội dung giống baseline
+- [x] `OPTIONS` các route OAuth → 204 + `Access-Control-Allow-Origin`
+- [x] `POST /register` → 201 + `client_id`
+- [x] `/authorize` client đã đăng ký → 302 sang Entra, `client_id` = proxy client
+- [x] `/authorize` client lạ → 400 `invalid_client`
+- [x] `/token` code giả → Entra trả `invalid_grant`
+- [x] `/mcp` không token / token giả → 401 + `WWW-Authenticate`
 
 **Build:**
-- [ ] `docker compose build` thành công trên `node:20-alpine`
-- [ ] Container khởi động, `/health` → 200
+- [x] Cài chỉ dependency production (`npm ci --omit=dev`) → chạy `dist/` được, kết quả giống baseline
+- [x] `docker compose build` thành công trên `node:20-alpine` (image 236 MB)
+- [x] Container khởi động (Node 20.20.2, user `node`), `/health` → 200
+- [x] Trong container: tool call + `tools/list` giống baseline; client v2 legacy/auto/pin đều OK; OAuth giống hệt v1
+- [x] DCR ghi được vào `/app/data/dcr-clients.json` (quyền `node:node`)
 
 ## Giai đoạn 6 — Triển khai
 
