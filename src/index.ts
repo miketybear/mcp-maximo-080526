@@ -1,6 +1,6 @@
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { toNodeHandler } from "@modelcontextprotocol/node";
 import express from "express";
 import { config } from "./config.js";
 import { registerAllTools, tools } from "./tools/index.js";
@@ -19,25 +19,42 @@ const INSTRUCTIONS =
   "for the vendor code using search_vendor first, then use search_purchase_orders with the vendor code.";
 
 /**
- * Build a fresh MCP server with all tools registered.
- * In stateless HTTP mode a new server is created per request so concurrent
- * requests never share (and overwrite) a single server↔transport connection.
+ * The tool list and server info only change on redeploy, so 2026-07-28 clients
+ * may cache them. `private`: responses sit behind per-user auth.
+ * (2025-era responses are never affected by cache hints.)
+ */
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Factory for a fresh MCP server with all tools registered. The SDK calls it
+ * per HTTP request (stateless) and once per stdio connection.
  */
 function createServer(): McpServer {
-  const server = new McpServer({ name: "maximo-mcp-server", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer(
+    { name: "maximo-mcp-server", version: "0.2.0" },
+    {
+      instructions: INSTRUCTIONS,
+      cacheHints: {
+        "tools/list": { ttlMs: ONE_HOUR_MS, cacheScope: "private" },
+        "server/discover": { ttlMs: ONE_HOUR_MS, cacheScope: "private" },
+      },
+    },
+  );
   registerAllTools(server);
   return server;
 }
+
+const logError = (scope: string) => (error: Error) => console.error(`[${scope}]`, error);
 
 console.error(`[registry] ${tools.length} tool(s): ${tools.map((t) => t.name).join(", ")}`);
 
 if (config.transport === "stdio") {
   // stdio mode — for local MCP clients (Claude Desktop, Cursor, Gemini CLI, etc.)
-  // Auth is handled by the host OS; no Express server needed.
-  await createServer().connect(new StdioServerTransport());
+  // Auth is handled by the host OS; no Express server needed. serveStdio
+  // serves both 2025-era (initialize) and 2026-07-28 openings.
+  serveStdio(createServer, { onerror: logError("stdio") });
   console.error("[transport] MCP Server running on stdio");
 } else {
-  // HTTP mode — Streamable HTTP transport (stateless mode)
   const app = express();
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -46,16 +63,14 @@ if (config.transport === "stdio") {
     mountOAuthProxy(app);
   }
 
-  const mcpHandler: express.RequestHandler = async (req, res) => {
-    const server = createServer();
-    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    res.on("close", () => {
-      transport.close();
-      server.close();
-    });
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  };
+  // Streamable HTTP. createMcpHandler serves 2026-07-28 requests natively and,
+  // with the default `legacy: 'stateless'`, answers 2025-era clients (Claude,
+  // ChatGPT today) with a fresh server per request. GET/DELETE get 405.
+  const mcp = toNodeHandler(createMcpHandler(createServer, { onerror: logError("mcp") }), {
+    onerror: logError("mcp-adapter"),
+  });
+  // Pass the body express.json() already consumed as parsedBody.
+  const mcpHandler: express.RequestHandler = (req, res) => mcp(req, res, req.body);
 
   app.all(["/mcp", "/"], buildAuthMiddleware(), mcpHandler);
 
