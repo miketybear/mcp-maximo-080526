@@ -6,6 +6,8 @@ import type {
   SearchVendorInput, VendorCollection,
   GetBudgetCodeInput, BudgetCodeCollection,
   ExchangeRateLookupResult,
+  SearchLocationsInput, GetLocationChildrenInput, GetLocationAncestorsInput, ListLocationSystemsInput,
+  LocHierarchyRow, LocHierarchyCollection, LocationNode, LocationAttrs,
 } from "./types/index.js";
 import {
   WorkOrderCollectionSchema,
@@ -13,6 +15,9 @@ import {
   VendorCollectionSchema,
   BudgetCodeCollectionSchema,
   ExchangeRateCollectionSchema,
+  LocHierarchyCollectionSchema,
+  LocSystemCollectionSchema,
+  OperLocCollectionSchema,
 } from "./types/index.js";
 
 // ─────────────────────────────────────────────────
@@ -41,6 +46,89 @@ interface OslcQuery {
 const WO_SELECT_FIELDS = "wonum,parent,description,status,woclass,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
 /** Extended select list (used by getWorkOrder). */
 const WO_SELECT_FIELDS_DETAIL = `${WO_SELECT_FIELDS},reportdate,assetnum,schedstart,schedfinish,actstart,actfinish,estdur,wopriority,siteid,description_longdescription`;
+
+/** mxapilocation root is LOCHIERARCHY; tag attributes live in the nested LOCATIONS record. */
+const LOC_ATTR_FIELDS = "description,status,bdpocloctype,bdpoclocfunction,bdpoclocgroup,plusgpandidnumber,plusgsafetycrit,plusgcomcrit";
+const LOC_SELECT_FIELDS = `location,parent,systemid,children,locations{${LOC_ATTR_FIELDS}}`;
+/** Legend returned with every rendered tree. */
+const TREE_LEGEND = "[SCE <group>] = Safety Critical Element, [PCE] = Production Critical Element, ▸ = has more children (call get_location_children on it)";
+/** Safety cap for get_location_ancestors (one Maximo request per level). */
+const LOC_MAX_ANCESTOR_LEVELS = 12;
+
+/** Tag attributes shared by every location node (LOCATIONS record). */
+function locAttributes(loc: LocationAttrs) {
+  return {
+    description: loc.description,
+    status: loc.status,
+    locType: loc.bdpocloctype,
+    locFunction: loc.bdpoclocfunction,
+    pidNumber: loc.plusgpandidnumber,
+    sce: loc.plusgsafetycrit ?? false,
+    sceGroup: loc.bdpoclocgroup,
+    sceGroupDescription: loc.bdpoclocgroup_description,
+    pce: loc.plusgcomcrit ?? false,
+    critical: criticalLabel(loc),
+  };
+}
+
+/**
+ * Highlight label for SCE / PCE tags, e.g. "⚠️ SCE (BD-SD001 Emergency Shutdown System) + PCE".
+ * Undefined for non-critical tags so the LLM can spot critical ones at a glance.
+ */
+function criticalLabel(loc: LocationAttrs): string | undefined {
+  const parts: string[] = [];
+  if (loc.plusgsafetycrit) {
+    const group = [loc.bdpoclocgroup, loc.bdpoclocgroup_description].filter(Boolean).join(" ");
+    parts.push(group ? `SCE (${group})` : "SCE");
+  }
+  if (loc.plusgcomcrit) parts.push("PCE");
+  return parts.length ? `⚠️ ${parts.join(" + ")}` : undefined;
+}
+
+/** Short marker used inside text trees: "[SCE BD-SD001][PCE]". */
+function treeMarker(n: LocationNode): string {
+  return (n.sce ? `[SCE${n.sceGroup ? ` ${n.sceGroup}` : ""}]` : "") + (n.pce ? "[PCE]" : "");
+}
+
+function treeLine(n: LocationNode): string {
+  const marker = treeMarker(n);
+  const status = n.status && n.status !== "OPERATING" ? ` (${n.status})` : "";
+  return [n.location, n.description && `— ${n.description}`, marker && ` ${marker}`]
+    .filter(Boolean).join(" ").replace(/  +/g, " ") + status;
+}
+
+/** Render a location tree as box-drawing text (├── / └──) for direct display. */
+function renderTree(root: LocationNode): string {
+  const lines = [treeLine(root)];
+  const walk = (node: LocationNode, prefix: string) => {
+    const kids = node.children ?? [];
+    kids.forEach((c, i) => {
+      const last = i === kids.length - 1;
+      const more = c.hasChildren && !c.children ? " ▸" : "";
+      lines.push(`${prefix}${last ? "└── " : "├── "}${treeLine(c)}${more}`);
+      walk(c, prefix + (last ? "    " : "│   "));
+    });
+    if (node.childrenTruncated) lines.push(`${prefix}└── … (more children not shown)`);
+  };
+  walk(root, "");
+  return lines.join("\n");
+}
+
+/** Flatten a LOCHIERARCHY row into the node shape returned by location tools. */
+function toLocationNode(row: LocHierarchyRow): LocationNode {
+  return {
+    location: row.location,
+    parent: row.parent,
+    systemid: row.systemid,
+    ...locAttributes(row.locations?.[0] ?? {}),
+    hasChildren: row.children,
+  };
+}
+
+/** Keep only the paging counters (drop long hrefs) for location tool responses. */
+function pagingInfo(info?: { totalCount?: number; totalPages?: number; pagenum?: number }) {
+  return { totalCount: info?.totalCount, totalPages: info?.totalPages, pagenum: info?.pagenum };
+}
 
 /** Purchase order statuses considered "approved" when picking the latest revision. */
 const PO_APPROVED_STATUSES = ["APPR", "INPRG", "CLOSE"];
@@ -341,6 +429,135 @@ export const maximoClient = {
       amountUsd: parseFloat((amount * rateInfo.normalizedRate).toFixed(6)),
       currencycode: currencycode.toUpperCase(),
       rateUsed: rateInfo,
+    };
+  },
+
+  // ─────────────────────────────────────────────────
+  // Location hierarchy methods (mxapilocation = LOCHIERARCHY root, mxapilocsystem)
+  // ─────────────────────────────────────────────────
+
+  async queryLocHierarchy(query: Omit<OslcQuery, "select">): Promise<LocHierarchyCollection> {
+    return this.query("mxapilocation", { ...query, select: LOC_SELECT_FIELDS }, LocHierarchyCollectionSchema);
+  },
+
+  async searchLocations(input: SearchLocationsInput): Promise<{ responseInfo: ReturnType<typeof pagingInfo>; member: LocationNode[] }> {
+    const { location, description, locType, locFunction, sce, pce, sceGroup, systemid, includeDecommissioned, limit = 20, pageno } = input;
+    if (!location && !description && !locType && !locFunction && sce === undefined && pce === undefined && !sceGroup) {
+      throw new Error("Provide at least one of: location, description, locType, locFunction, sce, pce, sceGroup");
+    }
+    // LOCATIONS-rooted structure: attribute filters work at root level here.
+    const res = await this.query("mxapioperloc", {
+      where: [
+        location && `location=${like(location)}`,
+        description && `description=${like(description)}`,
+        locType && `bdpocloctype=${q(locType)}`,
+        locFunction && `bdpoclocfunction=${q(locFunction)}`,
+        sce !== undefined && `plusgsafetycrit=${sce ? 1 : 0}`,
+        pce !== undefined && `plusgcomcrit=${pce ? 1 : 0}`,
+        sceGroup && `bdpoclocgroup=${q(sceGroup)}`,
+        !includeDecommissioned && `status!="DECOMMISSIONED"`,
+      ],
+      select: `location,${LOC_ATTR_FIELDS},lochierarchy{parent,systemid,children}`,
+      orderBy: "+location",
+      limit,
+      pageno,
+    }, OperLocCollectionSchema);
+    return {
+      responseInfo: pagingInfo(res.responseInfo),
+      member: res.member.map((loc) => {
+        const h = loc.lochierarchy?.find((r) => r.systemid === systemid);
+        return {
+          location: loc.location,
+          parent: h?.parent,
+          systemid: h ? systemid : undefined,
+          ...locAttributes(loc),
+          hasChildren: h?.children,
+        };
+      }),
+    };
+  },
+
+  async getLocationChildren(input: GetLocationChildrenInput): Promise<{ tree: string; legend: string; root: LocationNode }> {
+    const { location, systemid, depth = 1, includeDecommissioned, limit = 100 } = input;
+    const self = await this.queryLocHierarchy({
+      where: [`systemid=${q(systemid)}`, `location=${q(location)}`],
+      limit: 1,
+    });
+    const root: LocationNode = self.member[0]
+      ? toLocationNode(self.member[0])
+      : { location, systemid, hasChildren: true }; // e.g. site root BD1 has no LOCHIERARCHY row of its own
+
+    const expand = async (node: LocationNode, level: number): Promise<void> => {
+      if (level > depth || node.hasChildren === false) return;
+      const res = await this.queryLocHierarchy({
+        where: [`systemid=${q(systemid)}`, `parent=${q(node.location)}`],
+        orderBy: "+location",
+        limit,
+      });
+      // Nested `locations.status` filters are unreliable on mxapilocation → filter here.
+      const all = res.member.map(toLocationNode);
+      node.children = includeDecommissioned ? all : all.filter((c) => c.status !== "DECOMMISSIONED");
+      if ((res.responseInfo?.totalCount ?? 0) > all.length) node.childrenTruncated = true;
+      await Promise.all(node.children.map((c) => expand(c, level + 1)));
+    };
+    await expand(root, 1);
+    return { tree: renderTree(root), legend: TREE_LEGEND, root };
+  },
+
+  async getLocationAncestors(input: GetLocationAncestorsInput): Promise<{ location: string; systemid: string; tree: string; legend: string; path: LocationNode[] }> {
+    const { location, systemid } = input;
+    const path: LocationNode[] = [];
+    let current: string | undefined = location;
+    for (let i = 0; current && i < LOC_MAX_ANCESTOR_LEVELS; i++) {
+      const res = await this.queryLocHierarchy({
+        where: [`systemid=${q(systemid)}`, `location=${q(current)}`],
+        limit: 1,
+      });
+      const row = res.member[0];
+      if (!row) {
+        if (i === 0) throw new Error(`Location ${location} not found in system ${systemid}`);
+        path.push({ location: current, systemid }); // top node (site) without its own row
+        break;
+      }
+      path.push(toLocationNode(row));
+      current = row.parent;
+    }
+    // root → ... → requested location, rendered as a single-branch tree
+    path.reverse();
+    const tree = path.map((n, i) => (i === 0 ? "" : "    ".repeat(i - 1) + "└── ") + treeLine(n)).join("\n");
+    return { location, systemid, tree, legend: TREE_LEGEND, path };
+  },
+
+  async listLocationSystems(input: ListLocationSystemsInput) {
+    const { location, query, limit = 100 } = input;
+    if (location) {
+      const rows = await this.queryLocHierarchy({ where: [`location=${q(location)}`], limit: 50 });
+      if (rows.member.length === 0) throw new Error(`Location ${location} not found`);
+      const systems = await this.query("mxapilocsystem", {
+        where: [`systemid in [${rows.member.map((r) => q(r.systemid ?? "")).join(",")}]`],
+        select: "systemid,description,primarysystem",
+        limit: 50,
+      }, LocSystemCollectionSchema);
+      const desc = new Map(systems.member.map((s) => [s.systemid, s.description]));
+      return {
+        location,
+        description: rows.member[0].locations?.[0]?.description,
+        systems: rows.member.map((r) => ({
+          systemid: r.systemid,
+          systemDescription: desc.get(r.systemid ?? ""),
+          parent: r.parent,
+        })),
+      };
+    }
+    const res = await this.query("mxapilocsystem", {
+      where: [query && `description=${like(query)}`],
+      select: "systemid,description,primarysystem",
+      orderBy: "+systemid",
+      limit,
+    }, LocSystemCollectionSchema);
+    return {
+      responseInfo: pagingInfo(res.responseInfo),
+      member: res.member.map(({ systemid, description, primarysystem }) => ({ systemid, description, primarysystem })),
     };
   },
 };

@@ -63,3 +63,25 @@ export type {
   ExchangeRateCollection,
   ExchangeRateLookupResult,
 } from "./exchange-rate.js";
+
+export {
+  SearchLocationsInputSchema,
+  GetLocationChildrenInputSchema,
+  GetLocationAncestorsInputSchema,
+  ListLocationSystemsInputSchema,
+  LocHierarchyCollectionSchema,
+  LocSystemCollectionSchema,
+  OperLocCollectionSchema,
+  LocationAttrsSchema,
+} from "./location.js";
+export type {
+  SearchLocationsInput,
+  GetLocationChildrenInput,
+  GetLocationAncestorsInput,
+  ListLocationSystemsInput,
+  LocHierarchyRow,
+  LocHierarchyCollection,
+  LocSystemCollection,
+  LocationNode,
+  LocationAttrs,
+} from "./location.js";

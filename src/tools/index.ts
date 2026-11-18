@@ -10,6 +10,10 @@ import { searchVendor } from "./search-vendor.js";
 import { getBudgetCode } from "./get-budget-code.js";
 import { getExchangeRate } from "./get-exchange-rate.js";
 import { convertToUsd } from "./convert-to-usd.js";
+import { searchLocations } from "./search-locations.js";
+import { getLocationChildren } from "./get-location-children.js";
+import { getLocationAncestors } from "./get-location-ancestors.js";
+import { listLocationSystems } from "./list-location-systems.js";
 
 /**
  * All tools exposed by the server.
@@ -28,6 +32,10 @@ export const tools: Tool[] = [
   getBudgetCode,
   getExchangeRate,
   convertToUsd,
+  searchLocations,
+  getLocationChildren,
+  getLocationAncestors,
+  listLocationSystems,
 ];
 
 export function registerAllTools(server: McpServer): void {
