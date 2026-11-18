@@ -2,6 +2,11 @@
 
 This guide describes the step-by-step process of deploying your containerized Maximo Model Context Protocol (MCP) server to an Ubuntu host, securing it behind an Nginx Reverse Proxy, and configuring Let's Encrypt SSL certificates.
 
+> [!NOTE]
+> **Versions.** The server runs MCP SDK v2 (`@modelcontextprotocol/server` 2.4.0, `@modelcontextprotocol/node` 2.1.2, pinned exactly). It serves MCP spec **2026-07-28** natively and **2025-11-25** statelessly, so both new and older clients (Claude, ChatGPT) work.
+>
+> **Server folders.** Production runs from `~/mcp-maximo/mcp-maximo-v2`. The older `~/mcp-maximo/mcp-maximo-080526` (SDK v1, 05/2026) is kept stopped as a rollback. The paths `/var/www/maximo-mcp` below are examples — use the real folder.
+
 ---
 
 ## Prerequisites (Ubuntu Server Setup)
@@ -290,6 +295,25 @@ docker compose up -d --build
 
 > [!NOTE]
 > Do **not** add `-v` to `docker compose down`/`up` during a redeploy — that flag deletes named volumes, including `dcr-data` (persisted DCR client registrations, see Step 3), forcing every already-connected MCP client to re-register.
+
+
+### Rolling back to the previous release
+
+Both folders share `container_name: maximo-mcp-server` and port `127.0.0.1:3030`, so only one can run at a time. Nginx needs no change.
+
+```bash
+cd ~/mcp-maximo/mcp-maximo-v2 && docker compose down
+cd ../mcp-maximo-080526 && docker compose up -d
+```
+
+Each folder has its own `dcr-data` volume (named after the folder). To carry registered clients into a new folder, copy the volume before the first `up`:
+
+```bash
+docker volume create <newfolder>_dcr-data
+docker run --rm -v <oldfolder>_dcr-data:/from -v <newfolder>_dcr-data:/to alpine cp -a /from/. /to/
+```
+
+Never use `docker compose down -v` — it deletes the DCR volume.
 
 ### 3. Verify Container Startup
 Check the real-time container logs to verify the TypeScript compilation succeeded and the server is listening:

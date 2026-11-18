@@ -6,6 +6,7 @@ Every version-sensitive claim in this skill, in one place. When updating the ski
 |---|---|---|
 | `@modelcontextprotocol/ext-apps@1.2.2` CDN pin | `build-mcp-app/SKILL.md`, `build-mcp-app/references/widget-templates.md` (4×) | 2026-03 |
 | Claude Code ≥2.1.76 for elicitation | `elicitation.md:15`, `build-mcp-server/SKILL.md:43,76` | 2026-03 |
+| This project: `@modelcontextprotocol/server@2.4.0` + `@modelcontextprotocol/node@2.1.2`, spec 2026-07-28 | `package.json`, `docs/CLAUDE.md` | 2026-11 |
 | MCP spec 2025-11-25 CIMD/DCR status | `auth.md:20,24,41` | 2026-03 |
 | MCPB manifest schema v0.4 | `build-mcpb/references/manifest-schema.md` | 2026-03 |
 | CF `agents` SDK / `McpAgent` API | `deploy-cloudflare-workers.md` | 2026-03 |

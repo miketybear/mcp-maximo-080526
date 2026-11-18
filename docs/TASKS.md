@@ -15,7 +15,7 @@ Checklist cho [PLAN.md](PLAN.md). Đánh dấu `[x]` khi xong; ghi chú phát hi
   - [x] Ca lỗi `get_exchange_rate {currencycode: XXX}` → `error_case.json`
   - [x] Kết quả test OAuth (metadata, CORS, register, authorize, token lỗi, 401) → `oauth.txt`
   - Script tái sử dụng: `scripts/migration/baseline.mjs <base> <outDir> [location] [ponum]` và `scripts/migration/oauth-check.sh <base> <proxyClientId>`
-- [ ] Tag image Docker hiện tại trên server: `mcp-maximo:v1-<commit>` — **cần làm trên server trước khi deploy (Giai đoạn 6)**
+- [x] Bản v1 giữ nguyên ở folder `mcp-maximo-080526` (đã dừng) thay cho việc tag image; v2 deploy ở folder mới `mcp-maximo-v2`
 - [x] Đọc changelog `@modelcontextprotocol/server` từ 2.0 → bản mới nhất, chọn version để pin
   - Chọn `@modelcontextprotocol/server` **2.4.0** + `@modelcontextprotocol/node` **2.1.2** (bản mới nhất, 2026-10-23; 2.0.0 stable từ 2026-07-27)
   - Lưu ý 2.4.0 không ảnh hưởng dự án: `x-mcp-header` trên tham số `number` bị từ chối (không dùng), `outputSchema` với `.meta({id})` (không dùng), Ajv/fast-uri chặt hơn với `$id`/`$ref` (không dùng)
@@ -101,20 +101,20 @@ Checklist cho [PLAN.md](PLAN.md). Đánh dấu `[x]` khi xong; ghi chú phát hi
 
 ## Giai đoạn 6 — Triển khai
 
-- [ ] Deploy lên `mcp-server1` (xem [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md))
-- [ ] Claude (claude.ai / Desktop): ngắt kết nối connector → kết nối lại → đăng nhập Entra → gọi 3 tool baseline
-- [ ] ChatGPT (Developer mode connector): kết nối lại → đăng nhập Entra → gọi 3 tool baseline
+- [x] Deploy lên `mcp-server1` ở folder `~/mcp-maximo/mcp-maximo-v2` (copy volume DCR từ folder cũ); kiểm tra qua domain: health 200, `/mcp` không token 401, CORS 204, metadata đúng
+- [x] Claude (claude.ai / Desktop): ngắt kết nối connector → kết nối lại → gọi tool OK (không cần đăng nhập lại: token Entra còn hạn, DCR đã copy)
+- [x] ChatGPT (Developer mode connector): kết nối lại → gọi tool OK (không cần đăng nhập lại: token Entra còn hạn, DCR đã copy)
 - [ ] Theo dõi log 1–2 ngày: lỗi 4xx/5xx bất thường, lỗi `[auth]`, lỗi `[upstream]`
 - [ ] Nếu lỗi nghiêm trọng → rollback theo PLAN mục 6
 
 ## Giai đoạn 7 — Dọn dẹp & tài liệu
 
-- [ ] `docs/CLAUDE.md`: cập nhật import path, mô tả transport v2, bỏ ghi chú "SDK v1 raw shapes"
-- [ ] `docs/adding_tools_guide.md`: ví dụ dùng `z.object()`
-- [ ] `docs/DEPLOYMENT_GUIDE.md`: ghi chú phiên bản SDK/spec, cách rollback
-- [ ] `.agents/skills/mcp-server-dev/references/versions.md`: cập nhật version đã xác minh
-- [ ] Xoá `docs/baseline/` hoặc chuyển ra ngoài repo
-- [ ] Mở PR `feat/sdk-v2` → `main`, kèm kết quả kiểm thử
+- [x] `docs/CLAUDE.md`: cập nhật import path, mô tả transport v2, bỏ ghi chú "SDK v1 raw shapes"
+- [x] `docs/adding_tools_guide.md`: ghi chú input khai báo raw shape, `defineTool` bọc `z.object()`
+- [x] `docs/DEPLOYMENT_GUIDE.md`: ghi chú phiên bản SDK/spec, cách rollback
+- [x] `.agents/skills/mcp-server-dev/references/versions.md`: cập nhật version đã xác minh
+- [x] Xoá `docs/baseline/` hoặc chuyển ra ngoài repo
+- [x] Mở PR `feat/sdk-v2` → `main`, kèm kết quả kiểm thử
 
 ## Theo dõi sau nâng cấp (ngoài phạm vi)
 
