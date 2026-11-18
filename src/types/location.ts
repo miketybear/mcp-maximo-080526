@@ -30,12 +30,17 @@ const pagenoField = z.number().int().min(1).optional().describe(
 export const SearchLocationsInputSchema = {
   location: z.string().optional().describe("Tag number / location code, partial match, e.g. 4415C or HT-P-4415"),
   description: z.string().optional().describe("Words in the tag description, partial match, e.g. 'Cooling Medium Pump'. Use one short phrase; it is matched as a single CONTAINS pattern."),
-  locType: z.string().optional().describe("Equipment type (bdpocloctype), exact, e.g. Pump, Motor, Valves, Transmitter, Gauge, Relief Valve"),
+  locType: z.string().optional().describe("Equipment type (bdpocloctype), exact, e.g. Pump, Motor, Valves, Transmitter, Gauge, Relief Valve. Use \"(blank)\" for tags with no type (as shown by groupBy)."),
   locFunction: z.string().optional().describe("Equipment function (bdpoclocfunction), exact, e.g. Pressure, Temperature, Pump"),
   sce: z.boolean().optional().describe("true → only Safety Critical Elements (SCE, plusgsafetycrit); false → only non-SCE"),
   pce: z.boolean().optional().describe("true → only Production Critical Elements (PCE, plusgcomcrit); false → only non-PCE"),
   sceGroup: z.string().optional().describe("SCE group code (bdpoclocgroup), exact, e.g. BD-SD001 (Emergency Shutdown System), BD-PC007 (Relief Systems)"),
   systemid: z.string().default("PRIMARY").describe("System whose parent tag is reported for each result. Default PRIMARY."),
+  groupBy: z.array(z.enum(["locType", "locFunction", "sceGroup", "status", "sce", "pce"])).min(1).max(3).optional().describe(
+    "Return counts per group instead of a tag list (computed by Maximo in one request). " +
+    "Use it when a search would match many tags (responseInfo.totalCount > ~100) or the user asks 'how many'/'breakdown', " +
+    "e.g. groupBy ['locType'] for SCE group BD-SD001 → Transmitter 550, Gauge 6, ... Then list one group in detail with the matching filter.",
+  ),
   includeDecommissioned: includeDecommissionedField,
   limit: z.number().int().min(1).max(100).default(20).describe("Maximum number of records to return"),
   pageno: pagenoField,
@@ -157,7 +162,7 @@ export interface LocationNode {
   sceGroupDescription?: string;
   /** Production Critical Element (plusgcomcrit) */
   pce?: boolean;
-  /** Highlight label, set only for SCE/PCE tags, e.g. "⚠️ SCE (BD-SD001 Emergency Shutdown System) + PCE" */
+  /** Highlight label, set only for SCE/PCE tags, e.g. "🔴 SCE (BD-SD001 Emergency Shutdown System) · 🟡 PCE" */
   critical?: string;
   hasChildren?: boolean;
   children?: LocationNode[];
