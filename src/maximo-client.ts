@@ -1,68 +1,87 @@
+import type { z } from "zod";
 import { config } from "./config.js";
-import type { SearchWorkOrdersInput, WorkOrderCollection } from "./types/index.js";
-import { WorkOrderCollectionSchema } from "./types/index.js";
-import type { SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, PurchaseOrderCollection, PurchaseOrder } from "./types/index.js";
-import { PurchaseOrderCollectionSchema } from "./types/index.js";
-import type { SearchVendorInput, VendorCollection } from "./types/index.js";
-import { VendorCollectionSchema } from "./types/index.js";
-import type { GetBudgetCodeInput, BudgetCodeCollection } from "./types/index.js";
-import { BudgetCodeCollectionSchema } from "./types/index.js";
-import type { ExchangeRateLookupResult } from "./types/index.js";
-import { ExchangeRateCollectionSchema } from "./types/index.js";
+import type {
+  SearchWorkOrdersInput, WorkOrderCollection,
+  SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, PurchaseOrderCollection, PurchaseOrder,
+  SearchVendorInput, VendorCollection,
+  GetBudgetCodeInput, BudgetCodeCollection,
+  ExchangeRateLookupResult,
+} from "./types/index.js";
+import {
+  WorkOrderCollectionSchema,
+  PurchaseOrderCollectionSchema,
+  VendorCollectionSchema,
+  BudgetCodeCollectionSchema,
+  ExchangeRateCollectionSchema,
+} from "./types/index.js";
 
-function filterLatestApprovedRevisions(pos: PurchaseOrder[]): PurchaseOrder[] {
-  const groups: Record<string, PurchaseOrder[]> = {};
-  for (const po of pos) {
-    if (!po.ponum) continue;
-    if (!groups[po.ponum]) {
-      groups[po.ponum] = [];
-    }
-    groups[po.ponum].push(po);
-  }
+// ─────────────────────────────────────────────────
+// OSLC query helpers
+// ─────────────────────────────────────────────────
 
-  const result: PurchaseOrder[] = [];
-  const approvedStatuses = ["APPR", "INPRG", "CLOSE"];
+/**
+ * Quote a user-supplied value for use inside an `oslc.where` clause.
+ * Double quotes are stripped so a value can never close the literal and
+ * inject extra conditions (none of the Maximo codes we query contain them).
+ */
+const q = (value: string | number) => `"${String(value).replace(/"/g, "")}"`;
+/** Quoted CONTAINS (LIKE) pattern: `"%value%"`. */
+const like = (value: string) => q(`%${value}%`);
 
-  for (const ponum of Object.keys(groups)) {
-    const revisions = groups[ponum];
-    revisions.sort((a, b) => (b.revisionnum ?? 0) - (a.revisionnum ?? 0));
-    const latestApproved = revisions.find(r => r.status && approvedStatuses.includes(r.status));
-    result.push(latestApproved || revisions[0]);
-  }
-
-  return result;
+interface OslcQuery {
+  /** Conditions joined with " and "; falsy entries are skipped. */
+  where?: (string | false | undefined)[];
+  select: string;
+  orderBy?: string;
+  limit?: number;
+  pageno?: number;
 }
 
 /** Shared list of selected work order attributes for OSLC queries. */
 const WO_SELECT_FIELDS = "wonum,parent,description,status,woclass,location,bdpocdiscipline,worktype,plusgsafetycrit,plusgcomcrit";
-
 /** Extended select list (used by getWorkOrder). */
 const WO_SELECT_FIELDS_DETAIL = `${WO_SELECT_FIELDS},reportdate,assetnum,schedstart,schedfinish,actstart,actfinish,estdur,wopriority,siteid,description_longdescription`;
+
+/** Purchase order statuses considered "approved" when picking the latest revision. */
+const PO_APPROVED_STATUSES = ["APPR", "INPRG", "CLOSE"];
+
+/** Keep one record per PONUM: the latest approved revision, else the latest revision. */
+function filterLatestApprovedRevisions(pos: PurchaseOrder[]): PurchaseOrder[] {
+  const groups = new Map<string, PurchaseOrder[]>();
+  for (const po of pos) {
+    if (!po.ponum) continue;
+    const list = groups.get(po.ponum) ?? [];
+    list.push(po);
+    groups.set(po.ponum, list);
+  }
+
+  return [...groups.values()].map((revisions) => {
+    revisions.sort((a, b) => (b.revisionnum ?? 0) - (a.revisionnum ?? 0));
+    return revisions.find((r) => r.status && PO_APPROVED_STATUSES.includes(r.status)) ?? revisions[0];
+  });
+}
 
 export const maximoClient = {
   async fetchMaximo(endpoint: string, params: Record<string, string | number | undefined> = {}) {
     const url = new URL(`${config.baseUrl}${endpoint}`);
 
-    // Always append lean=1 and ignorecollectionref=1 per best practices
+    // Always request lean payloads per Maximo REST best practices
     url.searchParams.append("lean", "1");
     url.searchParams.append("ignorecollectionref", "1");
     url.searchParams.append("ignorekeyref", "1");
     url.searchParams.append("ignorers", "1");
 
-    // Append other params
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.append(key, String(value));
-      }
-    });
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) url.searchParams.append(key, String(value));
+    }
 
     console.log(`[upstream] Requesting: ${url.toString()}`);
 
     const response = await fetch(url.toString(), {
       headers: {
-        'apikey': config.apiKey,
-        'Content-Type': 'application/json',
-      }
+        apikey: config.apiKey,
+        "Content-Type": "application/json",
+      },
     });
 
     if (!response.ok) {
@@ -73,6 +92,23 @@ export const maximoClient = {
     return response.json();
   },
 
+  /** Run an OSLC query against an object structure and validate the result. */
+  async query<S extends z.ZodTypeAny>(objectStructure: string, query: OslcQuery, schema: S): Promise<z.infer<S>> {
+    const where = (query.where ?? []).filter(Boolean).join(" and ");
+    const raw = await this.fetchMaximo(`/api/os/${objectStructure}`, {
+      "oslc.where": where || undefined,
+      "oslc.select": query.select,
+      "oslc.orderBy": query.orderBy,
+      "oslc.pageSize": query.limit,
+      pageno: query.pageno || undefined,
+    });
+    return schema.parse(raw);
+  },
+
+  // ─────────────────────────────────────────────────
+  // Work Order methods (oslcmxwodetail)
+  // ─────────────────────────────────────────────────
+
   async searchWorkOrders(input: SearchWorkOrdersInput): Promise<WorkOrderCollection> {
     const {
       location, description, status, siteid, bdpocdiscipline,
@@ -80,183 +116,117 @@ export const maximoClient = {
       plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno, parent, notCompleted,
     } = input;
 
-    // Build the oslc.where string based on provided fields
-    const whereConditions: string[] = [];
-
-    if (location) whereConditions.push(`location="%${location}%"`);
-    if (description) whereConditions.push(`description="%${description}%"`);
-    if (status) whereConditions.push(`status="${status}"`);
-    // notCompleted=true → exclude all completed/closed statuses (backlog / open WOs)
-    if (notCompleted) whereConditions.push(`status!="CHKCOMP" and status!="COMP" and historyflag=0`);
-    if (siteid) whereConditions.push(`siteid="${siteid}"`);
-    if (bdpocdiscipline) whereConditions.push(`bdpocdiscipline="${bdpocdiscipline}"`);
-    if (worktype) whereConditions.push(`worktype="${worktype}"`);
-    if (wopriority) whereConditions.push(`wopriority=${wopriority}`);
-    if (schedFinishAfter) whereConditions.push(`schedfinish>="${schedFinishAfter}"`);
-    if (schedFinishBefore) whereConditions.push(`schedfinish<"${schedFinishBefore}"`);
-    if (plusgsafetycrit !== undefined) whereConditions.push(`plusgsafetycrit=${plusgsafetycrit ? "1" : "0"}`);
-    if (plusgcomcrit !== undefined) whereConditions.push(`plusgcomcrit=${plusgcomcrit ? "1" : "0"}`);
-    if (woclass) whereConditions.push(`woclass="${woclass}"`);
-
     // Parent filter: 'null' → top-level WOs only, 'notnull' → child WOs only,
     // any other value → exact match on parent WONUM.
     // OSLC null syntax: field!="*" means IS NULL, field="*" means IS NOT NULL.
-    if (parent !== undefined) {
-      if (parent === "null") {
-        whereConditions.push(`parent!="*"`);
-      } else if (parent === "notnull") {
-        whereConditions.push(`parent="*"`);
-      } else {
-        whereConditions.push(`parent="${parent}"`);
-      }
-    }
+    const parentCondition =
+      parent === undefined ? undefined
+      : parent === "null" ? `parent!="*"`
+      : parent === "notnull" ? `parent="*"`
+      : `parent=${q(parent)}`;
 
-    const params: Record<string, string | number> = {
-      "oslc.pageSize": limit,
-    };
-
-    if (pageno) {
-      params["pageno"] = pageno;
-    }
-
-    if (whereConditions.length > 0) {
-      params["oslc.where"] = whereConditions.join(" and ");
-    }
-
-    // Default select attributes as requested
-    params["oslc.select"] = WO_SELECT_FIELDS;
-
-    const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
-    return WorkOrderCollectionSchema.parse(raw);
+    return this.query("oslcmxwodetail", {
+      where: [
+        location && `location=${like(location)}`,
+        description && `description=${like(description)}`,
+        status && `status=${q(status)}`,
+        // notCompleted=true → exclude all completed/closed statuses (backlog / open WOs)
+        notCompleted && `status!="CHKCOMP" and status!="COMP" and historyflag=0`,
+        siteid && `siteid=${q(siteid)}`,
+        bdpocdiscipline && `bdpocdiscipline=${q(bdpocdiscipline)}`,
+        worktype && `worktype=${q(worktype)}`,
+        wopriority && `wopriority=${Number(wopriority)}`,
+        schedFinishAfter && `schedfinish>=${q(schedFinishAfter)}`,
+        schedFinishBefore && `schedfinish<${q(schedFinishBefore)}`,
+        plusgsafetycrit !== undefined && `plusgsafetycrit=${plusgsafetycrit ? 1 : 0}`,
+        plusgcomcrit !== undefined && `plusgcomcrit=${plusgcomcrit ? 1 : 0}`,
+        woclass && `woclass=${q(woclass)}`,
+        parentCondition,
+      ],
+      select: WO_SELECT_FIELDS,
+      limit,
+      pageno,
+    }, WorkOrderCollectionSchema);
   },
 
   async getWorkOrder(wonum: string, includeLabor?: boolean, includeMaterial?: boolean, includeTasks?: boolean): Promise<WorkOrderCollection> {
-    let selectFields = WO_SELECT_FIELDS_DETAIL;
-    if (includeLabor) {
-      selectFields += ",wplabor{laborcode,craft,skilllevel,regularhours,quantity,linecost}";
-    }
-    if (includeMaterial) {
-      selectFields += ",wpmaterial{itemnum,itemqty,storeloc,description,unitcost,linecost}";
-    }
-    if (includeTasks) {
-      selectFields += ",woactivity{taskid,description,status,location,estdur}";
-    }
+    const select = [
+      WO_SELECT_FIELDS_DETAIL,
+      includeLabor && "wplabor{laborcode,craft,skilllevel,regularhours,quantity,linecost}",
+      includeMaterial && "wpmaterial{itemnum,itemqty,storeloc,description,unitcost,linecost}",
+      includeTasks && "woactivity{taskid,description,status,location,estdur}",
+    ].filter(Boolean).join(",");
 
-    // Fetch exact match by wonum
-    const params = {
-      "oslc.where": `wonum="${wonum}"`,
-      "oslc.select": selectFields,
-    };
-
-    const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
-    return WorkOrderCollectionSchema.parse(raw);
+    return this.query("oslcmxwodetail", { where: [`wonum=${q(wonum)}`], select }, WorkOrderCollectionSchema);
   },
 
   async searchHistoryWOByTag(location: string, limit: number = 10, pageno?: number): Promise<WorkOrderCollection> {
-    const params: Record<string, string | number> = {
-      "oslc.where": `location="%${location}%" and woclass="WORKORDER" and status in ["COMP","CLOSE"]`,
-      "oslc.select": "wonum,description,matusetrans{itemnum,description,issuetype,positivequantity}",
-      "oslc.pageSize": limit,
-    };
-
-    if (pageno) {
-      params["pageno"] = pageno;
-    }
-
-    const raw = await this.fetchMaximo('/api/os/oslcmxwodetail', params);
-    return WorkOrderCollectionSchema.parse(raw);
+    return this.query("oslcmxwodetail", {
+      where: [`location=${like(location)}`, `woclass="WORKORDER"`, `status in ["COMP","CLOSE"]`],
+      select: "wonum,description,matusetrans{itemnum,description,issuetype,positivequantity}",
+      limit,
+      pageno,
+    }, WorkOrderCollectionSchema);
   },
 
   // ─────────────────────────────────────────────────
-  // Purchase Order methods (mxpodetails)
+  // Purchase Order methods (mxpodetails) — CAN is always excluded
   // ─────────────────────────────────────────────────
 
-  /**
-   * Search Purchase Orders by vendor, formno, description, status, techpic, potype.
-   * CAN status is always excluded — never add it to the where clause.
-   */
+  async queryPurchaseOrders(query: OslcQuery): Promise<PurchaseOrderCollection> {
+    const parsed = await this.query("mxpodetails", query, PurchaseOrderCollectionSchema);
+    parsed.member = filterLatestApprovedRevisions(parsed.member);
+    return parsed;
+  },
+
   async searchPurchaseOrders(input: SearchPurchaseOrdersInput): Promise<PurchaseOrderCollection> {
     const { vendor, formno, description, status, techpic, purchaseagent, potype, fromDate, toDate, vendeliveryAfter, vendeliveryBefore, limit = 10, pageno } = input;
 
-    const whereConditions: string[] = [
-      // Always exclude cancelled POs
-      'status!="CAN"',
-    ];
-
-    if (vendor) whereConditions.push(`vendor="%${vendor}%"`);
-    if (formno) whereConditions.push(`formno="%${formno}%"`);
-    if (description) whereConditions.push(`description="%${description}%"`);
-    if (status) whereConditions.push(`status="${status}"`);
-    if (techpic) whereConditions.push(`techpic="${techpic}"`);
-    if (purchaseagent) whereConditions.push(`purchaseagent="${purchaseagent}"`);
-    if (potype) whereConditions.push(`potype="${potype}"`);
-    if (fromDate) whereConditions.push(`orderdate>="${fromDate}"`);
-    if (toDate) whereConditions.push(`orderdate<="${toDate}"`);
-    if (vendeliveryAfter) whereConditions.push(`vendeliverydate>="${vendeliveryAfter}"`);
-    if (vendeliveryBefore) whereConditions.push(`vendeliverydate<"${vendeliveryBefore}"`);
-
-    const params: Record<string, string | number> = {
-      "oslc.where": whereConditions.join(" and "),
-      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,purchaseagent,orderdate,vendeliverydate,totalbasecost,siteid",
-      "oslc.pageSize": limit,
-      "oslc.orderBy": "-orderdate",
-    };
-
-    if (pageno) {
-      params["pageno"] = pageno;
-    }
-
-    const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
-    const parsed = PurchaseOrderCollectionSchema.parse(raw);
-    parsed.member = filterLatestApprovedRevisions(parsed.member);
-    return parsed;
+    return this.queryPurchaseOrders({
+      where: [
+        'status!="CAN"',
+        vendor && `vendor=${like(vendor)}`,
+        formno && `formno=${like(formno)}`,
+        description && `description=${like(description)}`,
+        status && `status=${q(status)}`,
+        techpic && `techpic=${q(techpic)}`,
+        purchaseagent && `purchaseagent=${q(purchaseagent)}`,
+        potype && `potype=${q(potype)}`,
+        fromDate && `orderdate>=${q(fromDate)}`,
+        toDate && `orderdate<=${q(toDate)}`,
+        vendeliveryAfter && `vendeliverydate>=${q(vendeliveryAfter)}`,
+        vendeliveryBefore && `vendeliverydate<${q(vendeliveryBefore)}`,
+      ],
+      select: "ponum,description,status,vendor,companies{name},formno,potype,techpic,purchaseagent,orderdate,vendeliverydate,totalbasecost,siteid",
+      orderBy: "-orderdate",
+      limit,
+      pageno,
+    });
   },
 
-  /**
-   * Search Purchase Orders by budget code.
-   * Excludes cancelled POs automatically.
-   */
   async searchPurchaseOrdersByBudget(input: SearchPurchaseOrdersByBudgetInput): Promise<PurchaseOrderCollection> {
     const { budgetcode, fromDate, toDate, limit = 10, pageno } = input;
 
-    const whereConditions: string[] = [
-      'status!="CAN"',
-      `poline.budgetcode="%${budgetcode}%"`,
-    ];
-
-    if (fromDate) whereConditions.push(`orderdate>="${fromDate}"`);
-    if (toDate) whereConditions.push(`orderdate<="${toDate}"`);
-
-    const params: Record<string, string | number> = {
-      "oslc.where": whereConditions.join(" and "),
-      "oslc.select": "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,totalbasecost,siteid",
-      "oslc.pageSize": limit,
-      "oslc.orderBy": "-orderdate",
-    };
-
-    if (pageno) {
-      params["pageno"] = pageno;
-    }
-
-    const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
-    const parsed = PurchaseOrderCollectionSchema.parse(raw);
-    parsed.member = filterLatestApprovedRevisions(parsed.member);
-    return parsed;
+    return this.queryPurchaseOrders({
+      where: [
+        'status!="CAN"',
+        `poline.budgetcode=${like(budgetcode)}`,
+        fromDate && `orderdate>=${q(fromDate)}`,
+        toDate && `orderdate<=${q(toDate)}`,
+      ],
+      select: "ponum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,totalbasecost,siteid",
+      orderBy: "-orderdate",
+      limit,
+      pageno,
+    });
   },
 
-  /**
-   * Fetch full Purchase Order detail by PONUM, including line items.
-   */
+  /** Fetch full Purchase Order detail by PONUM, including line items. */
   async getPurchaseOrder(ponum: string): Promise<PurchaseOrderCollection> {
-    const params = {
-      "oslc.where": `ponum="${ponum}"`,
-      "oslc.select": "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currencycode,totalcost,totalbasecost,siteid,vendeliverydate,poline{polinenum,itemnum,description,orderqty,unitcost,linecost,storeloc,receivedqty,budgetcode,linetype},xbgvposummary{budgetcode,description}",
-    };
-
-    const raw = await this.fetchMaximo('/api/os/mxpodetails', params);
-    const parsed = PurchaseOrderCollectionSchema.parse(raw);
-    parsed.member = filterLatestApprovedRevisions(parsed.member);
-    return parsed;
+    return this.queryPurchaseOrders({
+      where: [`ponum=${q(ponum)}`],
+      select: "ponum,revisionnum,description,status,vendor,companies{name},formno,potype,techpic,orderdate,currencycode,totalcost,totalbasecost,siteid,vendeliverydate,poline{polinenum,itemnum,description,orderqty,unitcost,linecost,storeloc,receivedqty,budgetcode,linetype},xbgvposummary{budgetcode,description}",
+    });
   },
 
   // ─────────────────────────────────────────────────
@@ -265,56 +235,28 @@ export const maximoClient = {
 
   async searchVendors(input: SearchVendorInput): Promise<VendorCollection> {
     const { name, limit = 10, pageno } = input;
-
-    const whereConditions: string[] = [
-      'type="V"',
-    ];
-
-    if (name) {
-      whereConditions.push(`name="%${name}%"`);
-    }
-
-    const params: Record<string, string | number> = {
-      "oslc.where": whereConditions.join(" and "),
-      "oslc.select": "company,name,type,orgid",
-      "oslc.pageSize": limit,
-    };
-
-    if (pageno) {
-      params["pageno"] = pageno;
-    }
-
-    const raw = await this.fetchMaximo('/api/os/mxvendor', params);
-    return VendorCollectionSchema.parse(raw);
+    return this.query("mxvendor", {
+      where: ['type="V"', name && `name=${like(name)}`],
+      select: "company,name,type,orgid",
+      limit,
+      pageno,
+    }, VendorCollectionSchema);
   },
 
   // ─────────────────────────────────────────────────
   // Budget Code methods (oslcmxbudget)
   // ─────────────────────────────────────────────────
 
-  /**
-   * Search Budget Codes by budgetcode field (exact or partial match).
-   * Returns: budgetcode, parentcode, budgetyear, status, deptcode,
-   *          custodian, approvedamt, utilizedamt, sbmtremain.
-   */
+  /** Search Budget Codes by budgetcode (partial match also matches an exact code). */
   async getBudgetCodes(input: GetBudgetCodeInput): Promise<BudgetCodeCollection> {
     const { budgetcode, limit = 10, pageno } = input;
-
-    // Use wildcard wrapping for partial match; an exact code will still match
-    // because Maximo's LIKE comparison treats "%exact%" as a full-string match.
-    const params: Record<string, string | number> = {
-      "oslc.where": `budgetcode="%${budgetcode}%"`,
-      "oslc.select": "budgetcode,parentcode,budgetyear,status,deptcode,custodian,approvedamt,utilizedamt,sbmtremain",
-      "oslc.pageSize": limit,
-      "oslc.orderBy": "+budgetcode",
-    };
-
-    if (pageno) {
-      params["pageno"] = pageno;
-    }
-
-    const raw = await this.fetchMaximo('/api/os/oslcmxbudget', params);
-    return BudgetCodeCollectionSchema.parse(raw);
+    return this.query("oslcmxbudget", {
+      where: [`budgetcode=${like(budgetcode)}`],
+      select: "budgetcode,parentcode,budgetyear,status,deptcode,custodian,approvedamt,utilizedamt,sbmtremain",
+      orderBy: "+budgetcode",
+      limit,
+      pageno,
+    }, BudgetCodeCollectionSchema);
   },
 
   // ─────────────────────────────────────────────────
@@ -325,9 +267,9 @@ export const maximoClient = {
    * Look up the active exchange rate between two currencies for a given date.
    *
    * Maximo may store either the direct pair (e.g. EUR→USD) or the inverse
-   * (e.g. USD→VND). This method tries the direct pair first; if no record is
-   * found it retries with the pairs swapped and inverts the rate so that
-   * `normalizedRate` always means: 1 unit of `currencycode` = N units of `currencycodeto`.
+   * (e.g. USD→VND). The direct pair is tried first; otherwise the inverse is
+   * used and inverted so that `normalizedRate` always means:
+   * 1 unit of `currencycode` = N units of `currencycodeto`.
    *
    * @param asOfDate - Optional YYYY-MM-DD date to query (defaults to today).
    * @returns The normalized lookup result, or null when no active rate is found.
@@ -335,72 +277,50 @@ export const maximoClient = {
   async getExchangeRate(
     currencycode: string,
     currencycodeto: string = "USD",
-    asOfDate?: string
+    asOfDate?: string,
   ): Promise<ExchangeRateLookupResult | null> {
     const from = currencycode.toUpperCase();
     const to = currencycodeto.toUpperCase();
-
-    // Use the provided date or fall back to today (YYYY-MM-DD)
     const refDate = asOfDate ?? new Date().toISOString().split("T")[0];
-    const selectFields = "currencycode,currencycodeto,activedate,expiredate,exchangerate";
 
     const fetchRate = async (fromCcy: string, toCcy: string) => {
-      const params: Record<string, string | number> = {
-        "oslc.where":
-          `currencycode="${fromCcy}" and currencycodeto="${toCcy}"` +
-          ` and activedate<="${refDate}" and expiredate>="${refDate}"`,
-        "oslc.select": selectFields,
-        "oslc.pageSize": 1,
-        "oslc.orderBy": "-activedate",
-      };
-      const raw = await this.fetchMaximo('/api/os/mxl-excgrates', params);
-      return ExchangeRateCollectionSchema.parse(raw);
+      const result = await this.query("mxl-excgrates", {
+        where: [
+          `currencycode=${q(fromCcy)}`,
+          `currencycodeto=${q(toCcy)}`,
+          `activedate<=${q(refDate)}`,
+          `expiredate>=${q(refDate)}`,
+        ],
+        select: "currencycode,currencycodeto,activedate,expiredate,exchangerate",
+        orderBy: "-activedate",
+        limit: 1,
+      }, ExchangeRateCollectionSchema);
+      return result.member[0];
     };
 
-    // ── 1. Try direct pair: from → to ──────────────────────────
-    const directResult = await fetchRate(from, to);
-    if (directResult.member.length > 0) {
-      const rec = directResult.member[0];
-      return {
-        currencycode: from,
-        currencycodeto: to,
-        normalizedRate: rec.exchangerate,
-        isInverse: false,
-        rawRate: rec.exchangerate,
-        rawCurrencyCode: rec.currencycode,
-        rawCurrencyCodeTo: rec.currencycodeto,
-        activedate: rec.activedate,
-        expiredate: rec.expiredate,
-      };
-    }
+    const toResult = (rec: NonNullable<Awaited<ReturnType<typeof fetchRate>>>, isInverse: boolean): ExchangeRateLookupResult => ({
+      currencycode: from,
+      currencycodeto: to,
+      normalizedRate: !isInverse ? rec.exchangerate : rec.exchangerate !== 0 ? 1 / rec.exchangerate : 0,
+      isInverse,
+      rawRate: rec.exchangerate,
+      rawCurrencyCode: rec.currencycode,
+      rawCurrencyCodeTo: rec.currencycodeto,
+      activedate: rec.activedate,
+      expiredate: rec.expiredate,
+    });
 
-    // ── 2. Try inverse pair: to → from ─────────────────────────
-    const inverseResult = await fetchRate(to, from);
-    if (inverseResult.member.length > 0) {
-      const rec = inverseResult.member[0];
-      const normalizedRate = rec.exchangerate !== 0 ? 1 / rec.exchangerate : 0;
-      return {
-        currencycode: from,
-        currencycodeto: to,
-        normalizedRate,
-        isInverse: true,
-        rawRate: rec.exchangerate,
-        rawCurrencyCode: rec.currencycode,
-        rawCurrencyCodeTo: rec.currencycodeto,
-        activedate: rec.activedate,
-        expiredate: rec.expiredate,
-      };
-    }
+    const direct = await fetchRate(from, to);
+    if (direct) return toResult(direct, false);
+
+    const inverse = await fetchRate(to, from);
+    if (inverse) return toResult(inverse, true);
 
     return null;
   },
 
   /**
    * Convert a monetary amount from a given currency to USD.
-   *
-   * Internally calls getExchangeRate to find the active rate and applies
-   * the correct multiplication or division depending on how the pair is stored.
-   *
    * @returns The equivalent amount in USD, rounded to 6 decimal places.
    * @throws When no active exchange rate is found for the currency pair.
    */
@@ -413,15 +333,12 @@ export const maximoClient = {
     if (!rateInfo) {
       throw new Error(
         `No active exchange rate found for ${currencycode.toUpperCase()} ↔ USD as of today. ` +
-        `Please ensure the rate is configured in Maximo (mxl-excgrates).`
+        `Please ensure the rate is configured in Maximo (mxl-excgrates).`,
       );
     }
 
-    // normalizedRate = 1 unit of currencycode = N USD
-    const amountUsd = parseFloat((amount * rateInfo.normalizedRate).toFixed(6));
-
     return {
-      amountUsd,
+      amountUsd: parseFloat((amount * rateInfo.normalizedRate).toFixed(6)),
       currencycode: currencycode.toUpperCase(),
       rateUsed: rateInfo,
     };

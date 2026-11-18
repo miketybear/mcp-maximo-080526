@@ -1,6 +1,6 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { maximoClient } from "../maximo-client.js";
 import { SearchWorkOrdersInputSchema } from "../types/index.js";
+import { defineTool } from "./define-tool.js";
 
 /**
  * Tool Behavior Rules:
@@ -24,36 +24,22 @@ import { SearchWorkOrdersInputSchema } from "../types/index.js";
  *   - Prefer exact filters over keyword search whenever possible.
  *   - Combine filters when multiple constraints are present.
  *   - Avoid adding filters not explicitly or implicitly requested by the user.
- *   - Default woclass to WORKORDER to exclude activity/task records.
- *   - Status MUST NOT be CAN — it is excluded from the enum entirely.
  *   - For 'backlog' / 'not completed' / 'open' queries always use notCompleted=true, not a list of statuses.
  */
-export function register(server: McpServer) {
-  server.registerTool("search_work_orders", {
-    description:
-      "Search Maximo Work Orders (WOs) by any combination of: equipment tag (location), " +
-      "job description keyword (description), status, site (siteid), discipline/team (bdpocdiscipline), " +
-      "work type (worktype), priority (wopriority), scheduled finish date range " +
-      "(schedFinishAfter / schedFinishBefore), SCE flag (plusgsafetycrit), PCE flag (plusgcomcrit), " +
-      "or WO class (woclass). " +
-      "Use notCompleted=true to filter for backlog / open / not-completed WOs. " +
-      "Do NOT use this tool for Purchase Orders (POs) or Vendors. " +
-      "Status CAN (Cancelled) is always excluded automatically — never specify it. " +
-      "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +
-      "To fetch another page, call again with the same filters and set pageno to the desired page number.",
-    inputSchema: SearchWorkOrdersInputSchema,
-    annotations: { readOnlyHint: true },
-  }, async (args) => {
-    try {
-      const results = await maximoClient.searchWorkOrders(args);
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }],
-      };
-    } catch (e: any) {
-      return {
-        isError: true,
-        content: [{ type: "text" as const, text: `Error searching work orders: ${e.message}` }],
-      };
-    }
-  });
-}
+export const searchWorkOrders = defineTool({
+  name: "search_work_orders",
+  description:
+    "Search Maximo Work Orders (WOs) by any combination of: equipment tag (location), " +
+    "job description keyword (description), status, site (siteid), discipline/team (bdpocdiscipline), " +
+    "work type (worktype), priority (wopriority), scheduled finish date range " +
+    "(schedFinishAfter / schedFinishBefore), SCE flag (plusgsafetycrit), PCE flag (plusgcomcrit), " +
+    "or WO class (woclass). " +
+    "Use notCompleted=true to filter for backlog / open / not-completed WOs. " +
+    "Do NOT use this tool for Purchase Orders (POs) or Vendors. " +
+    "Status CAN (Cancelled) is always excluded automatically — never specify it. " +
+    "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +
+    "To fetch another page, call again with the same filters and set pageno to the desired page number.",
+  inputSchema: SearchWorkOrdersInputSchema,
+  errorLabel: "Error searching work orders",
+  run: (args) => maximoClient.searchWorkOrders(args),
+});

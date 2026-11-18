@@ -1,6 +1,6 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { maximoClient } from "../maximo-client.js";
 import { SearchPurchaseOrdersInputSchema } from "../types/index.js";
+import { defineTool } from "./define-tool.js";
 
 /**
  * Tool Behavior Rules:
@@ -18,37 +18,19 @@ import { SearchPurchaseOrdersInputSchema } from "../types/index.js";
  *
  * General rules:
  *   - Status MUST NOT be CAN — client always appends status!="CAN".
- *   - Combine filters when multiple constraints are present.
- *   - Avoid unnecessary filters not explicitly requested by user.
  *   - Resolve natural-language dates (e.g. "next month") to ISO-8601 before passing.
  */
-export function register(server: McpServer) {
-  server.registerTool(
-    "search_purchase_orders",
-    {
-      description:
-        "Search Maximo Purchase Orders (POs) by any combination of: vendor (company code), formno, description keyword, " +
-        "status, Technical PIC (techpic), buyer/purchasing agent (purchaseagent), PO type (potype), " +
-        "PO order date range (fromDate / toDate), or vendor expected delivery date range (vendeliveryAfter / vendeliveryBefore). " +
-        "CAN (Cancelled) POs are always excluded automatically — never specify status=CAN. " +
-        "Returns summary-level fields including purchaseagent and vendeliverydate, but no line items. Use get_purchase_order for full detail. " +
-        "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +
-        "To fetch another page, call again with the same filters and set pageno to the desired page number.",
-      inputSchema: SearchPurchaseOrdersInputSchema,
-      annotations: { readOnlyHint: true },
-    },
-    async (args) => {
-      try {
-        const results = await maximoClient.searchPurchaseOrders(args);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }],
-        };
-      } catch (e: any) {
-        return {
-          isError: true,
-          content: [{ type: "text" as const, text: `Error searching purchase orders: ${e.message}` }],
-        };
-      }
-    }
-  );
-}
+export const searchPurchaseOrders = defineTool({
+  name: "search_purchase_orders",
+  description:
+    "Search Maximo Purchase Orders (POs) by any combination of: vendor (company code), formno, description keyword, " +
+    "status, Technical PIC (techpic), buyer/purchasing agent (purchaseagent), PO type (potype), " +
+    "PO order date range (fromDate / toDate), or vendor expected delivery date range (vendeliveryAfter / vendeliveryBefore). " +
+    "CAN (Cancelled) POs are always excluded automatically — never specify status=CAN. " +
+    "Returns summary-level fields including purchaseagent and vendeliverydate, but no line items. Use get_purchase_order for full detail. " +
+    "Pagination: The response includes responseInfo with totalCount, totalPages, and pagenum. " +
+    "To fetch another page, call again with the same filters and set pageno to the desired page number.",
+  inputSchema: SearchPurchaseOrdersInputSchema,
+  errorLabel: "Error searching purchase orders",
+  run: (args) => maximoClient.searchPurchaseOrders(args),
+});

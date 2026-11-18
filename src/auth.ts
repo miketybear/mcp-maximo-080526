@@ -127,11 +127,19 @@ export function createEntraIdAuthMiddleware(): express.RequestHandler {
         return;
       }
 
+      // Any token-level problem (bad claims, signature, malformed JWT, or no
+      // unique matching key in the JWKS) is the client's fault → 401.
+      // Only genuine infrastructure errors (e.g. JWKS fetch failure) fall
+      // through to 500.
       if (
         err instanceof joseErrors.JWTClaimValidationFailed ||
         err instanceof joseErrors.JWSInvalid ||
         err instanceof joseErrors.JWSSignatureVerificationFailed ||
-        err instanceof joseErrors.JWTInvalid
+        err instanceof joseErrors.JWTInvalid ||
+        err instanceof joseErrors.JWKSNoMatchingKey ||
+        err instanceof joseErrors.JWKSMultipleMatchingKeys ||
+        err instanceof joseErrors.JOSEAlgNotAllowed ||
+        err instanceof joseErrors.JOSENotSupported
       ) {
         res.status(401)
           .set("WWW-Authenticate", buildWwwAuthenticateHeader())

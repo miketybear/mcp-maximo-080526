@@ -55,6 +55,10 @@ export const config = {
     /** Pre-registered Client App used internally to proxy OAuth flows for DCR clients */
     proxyClientId: AZURE_PROXY_CLIENT_ID,
     proxyClientSecret: AZURE_PROXY_CLIENT_SECRET,
+    /** This server's own API scope (api://<client-id>/mcp.access) */
+    apiScope: `api://${AZURE_CLIENT_ID}/mcp.access`,
+    /** Scope sent to Entra ID when the MCP client omits one */
+    defaultScope: `api://${AZURE_CLIENT_ID}/mcp.access offline_access openid profile`,
   },
   /** File path used to persist DCR client registrations across restarts */
   dcrStorePath: DCR_STORE_PATH,
