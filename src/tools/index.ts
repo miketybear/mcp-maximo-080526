@@ -1,4 +1,4 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import type { Tool } from "./define-tool.js";
 import { searchWorkOrders } from "./search-work-orders.js";
 import { getWorkOrder } from "./get-work-order.js";

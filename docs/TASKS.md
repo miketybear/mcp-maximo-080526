@@ -4,28 +4,39 @@ Checklist cho [PLAN.md](PLAN.md). Đánh dấu `[x]` khi xong; ghi chú phát hi
 
 ## Giai đoạn 0 — Chuẩn bị
 
-- [ ] Commit refactor hiện tại (defineTool, query builder, oauth-proxy, sửa CORS/401) lên `main`
-- [ ] Tạo branch `feat/sdk-v2`
-- [ ] Ghi baseline vào `docs/baseline/` (không commit dữ liệu nhạy cảm):
-  - [ ] `tools/list` → `tools-list.json`
-  - [ ] `get_exchange_rate {currencycode: VND}` → JSON
-  - [ ] `search_work_orders {location: <tag thật>, limit: 2}` → JSON
-  - [ ] `get_purchase_order {ponum: <PO thật>}` → JSON
-  - [ ] Kết quả test OAuth (metadata, register, authorize redirect, token lỗi, 401) → `oauth.txt`
-- [ ] Tag image Docker hiện tại trên server: `mcp-maximo:v1-<commit>`
-- [ ] Đọc changelog `@modelcontextprotocol/server` từ 2.0 → bản mới nhất, chọn version để pin
+- [x] Commit refactor hiện tại (defineTool, query builder, oauth-proxy, sửa CORS/401) lên `main`
+  - `6444199`, `1d0499e` — đã merge vào `main` local, **chưa push**
+- [x] Tạo branch `feat/sdk-v2`
+- [x] Ghi baseline vào `docs/baseline/v1/` (thư mục đã đưa vào `.gitignore`, chứa dữ liệu Maximo thật):
+  - [x] `tools/list` → `tools-list.json`
+  - [x] `get_exchange_rate {currencycode: VND, asOfDate: 2026-11-18}` → JSON
+  - [x] `search_work_orders {location: HT-PM-4415C, limit: 2}` → JSON
+  - [x] `get_purchase_order {ponum: H13110952}` → JSON
+  - [x] Ca lỗi `get_exchange_rate {currencycode: XXX}` → `error_case.json`
+  - [x] Kết quả test OAuth (metadata, CORS, register, authorize, token lỗi, 401) → `oauth.txt`
+  - Script tái sử dụng: `scripts/migration/baseline.mjs <base> <outDir> [location] [ponum]` và `scripts/migration/oauth-check.sh <base> <proxyClientId>`
+- [ ] Tag image Docker hiện tại trên server: `mcp-maximo:v1-<commit>` — **cần làm trên server trước khi deploy (Giai đoạn 6)**
+- [x] Đọc changelog `@modelcontextprotocol/server` từ 2.0 → bản mới nhất, chọn version để pin
+  - Chọn `@modelcontextprotocol/server` **2.4.0** + `@modelcontextprotocol/node` **2.1.2** (bản mới nhất, 2026-10-23; 2.0.0 stable từ 2026-07-27)
+  - Lưu ý 2.4.0 không ảnh hưởng dự án: `x-mcp-header` trên tham số `number` bị từ chối (không dùng), `outputSchema` với `.meta({id})` (không dùng), Ajv/fast-uri chặt hơn với `$id`/`$ref` (không dùng)
+  - 2.4.0 có `scopeForRefresh` cho Entra ID (`AADSTS90009`) — chỉ dành cho phía client, không áp dụng cho proxy của ta
 
 ## Giai đoạn 1 — Nâng cấp package
 
-- [ ] `npx @modelcontextprotocol/codemod@latest v1-to-v2 . --dry-run` và đọc diff
-- [ ] Chạy codemod thật
-- [ ] `grep -rn '@mcp-codemod-error' src` → sửa tay từng chỗ
-- [ ] `package.json`: gỡ `@modelcontextprotocol/sdk`; thêm `@modelcontextprotocol/server` và `@modelcontextprotocol/node` với **version chính xác** (không `^`)
-- [ ] Xác nhận `zod` ≥ 4.2 (đang 4.4.x) và không còn import `zod/v3`
+- [x] `npx @modelcontextprotocol/codemod@2.4.0 v1-to-v2 . --dry-run` và đọc diff — 6 thay đổi / 3 file, 1 cảnh báo
+- [x] Chạy codemod thật — đổi import ở `index.ts`, `define-tool.ts`, `tools/index.ts`; `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
+- [x] `grep -rn '@mcp-codemod-error' src` → sửa tay từng chỗ
+  - 1 chỗ ở `define-tool.ts` (raw shape): giờ bọc `z.object(def.inputSchema)` trong `defineTool`; các tool và type vẫn khai báo raw shape (quyết định cho Giai đoạn 3)
+- [x] `package.json`: gỡ `@modelcontextprotocol/sdk`; thêm `@modelcontextprotocol/server@2.4.0` và `@modelcontextprotocol/node@2.1.2` (pin chính xác, `--save-exact`)
+- [x] Xác nhận `zod` ≥ 4.2 (4.4.x) và không còn import `zod/v3`
 - [ ] Xác minh trên docs v2 (đã ghi chưa chắc chắn trong PLAN):
-  - [ ] Đường import `ToolAnnotations` và kiểu kết quả tool (`CallToolResult`)
-  - [ ] Trạng thái DCR / CIMD trong spec 2026-07-28
-- [ ] `npm run build` pass
+  - [x] Đường import `ToolAnnotations`: `@modelcontextprotocol/server` (typecheck pass)
+  - [ ] Kiểu kết quả tool (`CallToolResult`) — handler vẫn cần cast `as never`; xem lại ở Giai đoạn 3
+  - [ ] Trạng thái DCR / CIMD trong spec 2026-07-28 — chưa xác minh trên spec chính thức
+- [x] `npm run build` pass
+- [x] Smoke test (static auth, transport vẫn là `NodeStreamableHTTPServerTransport` theo request) so với baseline → `docs/baseline/v2-phase1/`
+  - 4 tool call: **giống hệt** v1
+  - `tools/list`: 10 tool, description và `.describe()` giữ nguyên; chỉ khác `inputSchema.$schema` (draft-07 → 2020-12) và mất trường `execution: {taskSupport: "forbidden"}`
 
 ## Giai đoạn 2 — Transport
 

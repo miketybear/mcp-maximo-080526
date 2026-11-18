@@ -18,3 +18,5 @@ yarn-error.log*
 .agents
 adding_tools_guide.md
 oas.json
+# SDK v2 migration baseline (real Maximo data, do not commit)
+docs/baseline/

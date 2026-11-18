@@ -1,6 +1,5 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import type { z } from "zod";
+import type { McpServer, ToolAnnotations } from "@modelcontextprotocol/server";
+import { z } from "zod";
 
 /**
  * Declarative definition of a Maximo tool (read-only unless `annotations` says otherwise).
@@ -43,7 +42,9 @@ export function defineTool<S extends z.ZodRawShape>(def: ToolDefinition<S>): Too
         def.name,
         {
           description: def.description,
-          inputSchema: def.inputSchema,
+          // SDK v2 expects a Standard Schema object; tools keep declaring raw
+          // shapes (shared with maximo-client types) and are wrapped here once.
+          inputSchema: z.object(def.inputSchema),
           annotations: def.annotations ?? { readOnlyHint: true },
         },
         // The SDK's generic callback type can't be inferred through our own
