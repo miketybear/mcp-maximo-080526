@@ -10,7 +10,7 @@ export const summarizeActionTracking = defineTool({
     "computed by Maximo in one request. Accepts the same filters as search_action_tracking (openOnly, overdue, dueWithinDays, pic, discipline, dates...). " +
     "Use for 'how many', 'breakdown', 'who has the most open/overdue actions', 'most frequent root-cause categories'. " +
     "Examples: groupBy ['pic'] + overdue=true → overdue actions per PIC; groupBy ['discipline','status'] → status per discipline. " +
-    "Response: { groupBy, totalCount, groupCount, groups[{<keys>, count}] } sorted by count (largest first); \"(blank)\" = no value. " +
+    "Response: { groupBy, totalCount, groupCount, groups[{<keys>, count}] } sorted by count (largest first); \"(blank)\" = no value; status groups carry statusDescription — show it instead of the bare code. " +
     "Then call search_action_tracking with the matching filter to list a group.",
   inputSchema: SummarizeActionTrackingInputSchema,
   errorLabel: "Error summarizing action tracking",

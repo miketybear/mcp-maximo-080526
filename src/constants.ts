@@ -73,9 +73,28 @@ export const ACT_OPEN_STATUS = ["WAPPR", "INPROGRESS", "ACTTLRET", "ACTWCLOSE"] 
 
 /**
  * Investigation (Oil) statuses (REP_PLUSGINV). CANCELED is intentionally omitted.
- *   NEW     – New
+ *   NEW      – New
+ *   RIRTLEAD – Review investigation results (team lead)
  *   WRTL    – Final review / approval of technical report
  *   WCLOSED – Waiting closed
  *   CLOSED  – Closed
  */
-export const INV_STATUS = ["NEW", "WRTL", "WCLOSED", "CLOSED"] as const;
+export const INV_STATUS = ["NEW", "RIRTLEAD", "WRTL", "WCLOSED", "CLOSED"] as const;
+
+/** Readable labels for action statuses (Maximo's own descriptions are cryptic, e.g. "Change Action tracking status to ACTTLRET"). */
+export const ACT_STATUS_LABEL: Record<string, string> = {
+  WAPPR: "Waiting approval",
+  INPROGRESS: "PIC in progress",
+  ACTTLRET: "Returned to PIC by team lead",
+  ACTWCLOSE: "Agreed, waiting for close-out",
+  CLOSE: "Closed",
+};
+
+/** Readable labels for investigation statuses. */
+export const INV_STATUS_LABEL: Record<string, string> = {
+  NEW: "New",
+  RIRTLEAD: "Review investigation results",
+  WRTL: "Final review / approval of technical report",
+  WCLOSED: "Waiting closed",
+  CLOSED: "Closed",
+};

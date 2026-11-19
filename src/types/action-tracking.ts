@@ -88,7 +88,7 @@ export const INV_GROUP_KEYS = ["status", "discipline", "incidentGroup", "severit
 export const SearchInvestigationsInputSchema = {
   query: z.string().optional().describe("Full-text search (whole words) in the investigation title, finding and consequence, e.g. 'ESD', 'seal leak'."),
   status: z.array(z.enum(INV_STATUS)).optional().describe(
-    "Investigation statuses: NEW, WRTL (final review/approval of technical report), WCLOSED (waiting closed), CLOSED. Cancelled investigations are never returned.",
+    "Investigation statuses: NEW, RIRTLEAD (review investigation results), WRTL (final review/approval of technical report), WCLOSED (waiting closed), CLOSED. Cancelled investigations are never returned.",
   ),
   openOnly: z.boolean().optional().describe("true → only investigations not yet CLOSED."),
   location: z.string().optional().describe("Equipment tag, partial match, e.g. HT-PM-4110A."),

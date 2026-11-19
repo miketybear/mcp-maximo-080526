@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { config } from "./config.js";
-import { ACT_OPEN_STATUS } from "./constants.js";
+import { ACT_OPEN_STATUS, ACT_STATUS_LABEL, INV_STATUS_LABEL } from "./constants.js";
 import type {
   SearchWorkOrdersInput, WorkOrderCollection,
   SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, PurchaseOrderCollection, PurchaseOrder,
@@ -285,7 +285,7 @@ function toAction(row: MaximoRow, detail = false) {
     actionNumber: row.hse_acttrack_num,
     description: row.description,
     status: row.status,
-    statusDescription: row.status_description,
+    statusDescription: ACT_STATUS_LABEL[String(row.status)] ?? row.status_description,
     pic: row.hse_act_pic,
     teamLead: row.hse_act_tl,
     deadline,
@@ -328,7 +328,7 @@ function toInvestigation(row: MaximoRow, detail = false) {
     reportNumber: row.hse_reportnumber,
     description: row.description,
     status: row.status,
-    statusDescription: row.status_description,
+    statusDescription: INV_STATUS_LABEL[String(row.status)] ?? row.status_description,
     location: row.location,
     discipline: row.bdpocdiscipline,
     incidentGroup: row.plusgincidentgroup,
@@ -398,10 +398,10 @@ function actionWhere(f: ActionFilter): (string | false | undefined)[] {
 }
 
 function investigationWhere(f: SearchInvestigationsInput): (string | false | undefined)[] {
-  const statuses = f.status ?? (f.openOnly ? ["NEW", "WRTL", "WCLOSED"] : undefined);
   return [
     `status!="CANCELED"`,
-    statuses && `status in [${statuses.map(q).join(",")}]`,
+    !f.status && f.openOnly && `status!="CLOSED"`,
+    f.status && `status in [${f.status.map(q).join(",")}]`,
     f.location && `location=${like(f.location)}`,
     f.discipline && `bdpocdiscipline=${q(f.discipline)}`,
     f.incidentGroup && `plusgincidentgroup=${q(f.incidentGroup)}`,
@@ -858,7 +858,7 @@ export const maximoClient = {
   // ─────────────────────────────────────────────────
 
   /** Generic server-side group-by count on an object structure, largest group first. */
-  async groupCount<K extends string>(os: string, where: (string | false | undefined)[], columns: Record<K, string>, groupBy: K[], search?: OslcQuery["search"]) {
+  async groupCount<K extends string>(os: string, where: (string | false | undefined)[], columns: Record<K, string>, groupBy: K[], search?: OslcQuery["search"], statusLabels?: Record<string, string>) {
     const keys = [...new Set(groupBy)];
     const raw = await this.fetchMaximo(`/api/os/${os}`, {
       "oslc.where": where.filter(Boolean).join(" and ") || undefined,
@@ -872,7 +872,7 @@ export const maximoClient = {
       const g: Record<string, unknown> = {};
       for (const k of keys) {
         g[k] = row[columns[k]] ?? "(blank)";
-        const desc = row[`${columns[k]}_description`];
+        const desc = (k === "status" && statusLabels?.[String(g[k])]) || row[`${columns[k]}_description`];
         if (desc && desc !== g[k]) g[`${k}Description`] = desc;
       }
       g.count = Number(row.count ?? 0);
@@ -932,7 +932,7 @@ export const maximoClient = {
 
   async summarizeActionTracking(input: SummarizeActionTrackingInput) {
     const { groupBy, ...filter } = input;
-    return this.groupCount(ACT_OS, actionWhere(filter), ACT_GROUP_COLUMNS, groupBy, searchOf(filter.query, ACT_SEARCH_ATTRS));
+    return this.groupCount(ACT_OS, actionWhere(filter), ACT_GROUP_COLUMNS, groupBy, searchOf(filter.query, ACT_SEARCH_ATTRS), ACT_STATUS_LABEL);
   },
 
   /** Short summaries of related records, grouped by class (one request per class). */
@@ -974,7 +974,7 @@ export const maximoClient = {
     const { groupBy, limit = 20, pageno } = input;
     const where = investigationWhere(input);
     const search = searchOf(input.query, INV_SEARCH_ATTRS);
-    if (groupBy) return this.groupCount(INV_OS, where, INV_GROUP_COLUMNS, groupBy, search);
+    if (groupBy) return this.groupCount(INV_OS, where, INV_GROUP_COLUMNS, groupBy, search, INV_STATUS_LABEL);
     const res = await this.query(INV_OS, { where, search, select: INV_LIST_FIELDS, orderBy: "-reportdate", limit, pageno }, RowCollectionSchema);
     return {
       responseInfo: pagingInfo(res.responseInfo),
