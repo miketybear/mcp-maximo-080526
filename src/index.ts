@@ -24,7 +24,11 @@ const INSTRUCTIONS =
   "Use only these emoji for colour — do not use HTML <span>/<font>, LaTeX \color or other colour markup, which most chat clients " +
   "strip or show as raw text. When listing several tags state how many are SCE / PCE. " +
   "When the user asks for a tree / hierarchy / structure, display the `tree` field returned by get_location_children or " +
-  "get_location_ancestors verbatim inside a code block (do not reformat it), followed by its legend.";
+  "get_location_ancestors verbatim inside a code block (do not reformat it), followed by its legend. " +
+  "5. For Investigations and Action Tracking (Oil): investigations (incidents, failures, RCAs) raise follow-up actions. " +
+  "Find investigations with search_investigations, then get_investigation / list_actions_by_investigation; " +
+  "find actions with search_action_tracking (open / overdue / by PIC) and count them with summarize_action_tracking. " +
+  "Always mention overdue actions (overdue: true) and apply the same SCE / PCE highlighting to their `critical` field.";
 
 /**
  * The tool list and server info only change on redeploy, so 2026-07-28 clients

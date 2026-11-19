@@ -58,3 +58,24 @@ export const PO_STATUS = ["WAPPR", "APPR", "INPRG", "WREVCC", "WTECHMGR", "CLOSE
 
 /** Purchase Order types. */
 export const PO_TYPE = ["STD", "REL"] as const;
+
+/**
+ * Action Tracking (Oil) statuses (REP_PLUSGACT). CAN is intentionally omitted.
+ *   WAPPR      – Waiting on approval
+ *   INPROGRESS – PIC in progress
+ *   ACTTLRET   – Returned by team lead to the PIC
+ *   ACTWCLOSE  – Agreed, waiting for close-out
+ *   CLOSE      – Closed
+ */
+export const ACT_STATUS = ["WAPPR", "INPROGRESS", "ACTTLRET", "ACTWCLOSE", "CLOSE"] as const;
+/** Action statuses counted as still open. */
+export const ACT_OPEN_STATUS = ["WAPPR", "INPROGRESS", "ACTTLRET", "ACTWCLOSE"] as const;
+
+/**
+ * Investigation (Oil) statuses (REP_PLUSGINV). CANCELED is intentionally omitted.
+ *   NEW     – New
+ *   WRTL    – Final review / approval of technical report
+ *   WCLOSED – Waiting closed
+ *   CLOSED  – Closed
+ */
+export const INV_STATUS = ["NEW", "WRTL", "WCLOSED", "CLOSED"] as const;

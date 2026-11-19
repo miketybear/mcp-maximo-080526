@@ -14,6 +14,12 @@ import { searchLocations } from "./search-locations.js";
 import { getLocationChildren } from "./get-location-children.js";
 import { getLocationAncestors } from "./get-location-ancestors.js";
 import { listLocationSystems } from "./list-location-systems.js";
+import { searchActionTracking } from "./search-action-tracking.js";
+import { summarizeActionTracking } from "./summarize-action-tracking.js";
+import { getActionTracking } from "./get-action-tracking.js";
+import { listActionsByInvestigation } from "./list-actions-by-investigation.js";
+import { searchInvestigations } from "./search-investigations.js";
+import { getInvestigation } from "./get-investigation.js";
 
 /**
  * All tools exposed by the server.
@@ -36,6 +42,12 @@ export const tools: Tool[] = [
   getLocationChildren,
   getLocationAncestors,
   listLocationSystems,
+  searchActionTracking,
+  summarizeActionTracking,
+  getActionTracking,
+  listActionsByInvestigation,
+  searchInvestigations,
+  getInvestigation,
 ];
 
 export function registerAllTools(server: McpServer): void {

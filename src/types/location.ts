@@ -86,15 +86,15 @@ const ResponseInfoSchema = z.object({
 
 /** LOCATIONS attributes selected by the location tools. */
 export const LocationAttrsSchema = z.object({
-  description: z.string().optional(),
-  status: z.string().optional(),
-  bdpocloctype: z.string().optional(),
-  bdpoclocfunction: z.string().optional(),
-  bdpoclocgroup: z.string().optional(),
-  bdpoclocgroup_description: z.string().optional(),
-  plusgpandidnumber: z.string().optional(),
-  plusgsafetycrit: z.boolean().optional(),
-  plusgcomcrit: z.boolean().optional(),
+  description: z.string().nullish(),
+  status: z.string().nullish(),
+  bdpocloctype: z.string().nullish(),
+  bdpoclocfunction: z.string().nullish(),
+  bdpoclocgroup: z.string().nullish(),
+  bdpoclocgroup_description: z.string().nullish(),
+  plusgpandidnumber: z.string().nullish(),
+  plusgsafetycrit: z.boolean().nullish(),
+  plusgcomcrit: z.boolean().nullish(),
 }).loose();
 export type LocationAttrs = z.infer<typeof LocationAttrsSchema>;
 
