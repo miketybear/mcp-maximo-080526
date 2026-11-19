@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { config } from "./config.js";
+import { ACT_OPEN_STATUS, ACT_STATUS_LABEL, INV_STATUS_LABEL } from "./constants.js";
 import type {
   SearchWorkOrdersInput, WorkOrderCollection,
   SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, PurchaseOrderCollection, PurchaseOrder,
@@ -8,6 +9,8 @@ import type {
   ExchangeRateLookupResult,
   SearchLocationsInput, GetLocationChildrenInput, GetLocationAncestorsInput, ListLocationSystemsInput,
   LocHierarchyRow, LocHierarchyCollection, LocationNode, LocationAttrs,
+  ActionFilter, SearchActionTrackingInput, SummarizeActionTrackingInput, GetActionTrackingInput,
+  ListActionsByInvestigationInput, SearchInvestigationsInput, GetInvestigationInput, MaximoRow, RelatedRecord,
 } from "./types/index.js";
 import {
   WorkOrderCollectionSchema,
@@ -18,6 +21,7 @@ import {
   LocHierarchyCollectionSchema,
   LocSystemCollectionSchema,
   OperLocCollectionSchema,
+  RowCollectionSchema,
 } from "./types/index.js";
 
 // ─────────────────────────────────────────────────
@@ -40,6 +44,8 @@ interface OslcQuery {
   orderBy?: string;
   limit?: number;
   pageno?: number;
+  /** Full-text search (`oslc.searchTerms`) over `searchAttributes`. */
+  search?: { terms: string; attributes: string };
 }
 
 /** Shared list of selected work order attributes for OSLC queries. */
@@ -71,14 +77,14 @@ const LOC_MAX_ANCESTOR_LEVELS = 12;
 /** Tag attributes shared by every location node (LOCATIONS record). */
 function locAttributes(loc: LocationAttrs) {
   return {
-    description: loc.description,
-    status: loc.status,
-    locType: loc.bdpocloctype,
-    locFunction: loc.bdpoclocfunction,
-    pidNumber: loc.plusgpandidnumber,
+    description: loc.description ?? undefined,
+    status: loc.status ?? undefined,
+    locType: loc.bdpocloctype ?? undefined,
+    locFunction: loc.bdpoclocfunction ?? undefined,
+    pidNumber: loc.plusgpandidnumber ?? undefined,
     sce: loc.plusgsafetycrit ?? false,
-    sceGroup: loc.bdpoclocgroup,
-    sceGroupDescription: loc.bdpoclocgroup_description,
+    sceGroup: loc.bdpoclocgroup ?? undefined,
+    sceGroupDescription: loc.bdpoclocgroup_description ?? undefined,
     pce: loc.plusgcomcrit ?? false,
     critical: criticalLabel(loc),
   };
@@ -173,6 +179,241 @@ function filterLatestApprovedRevisions(pos: PurchaseOrder[]): PurchaseOrder[] {
   });
 }
 
+// ─────────────────────────────────────────────────
+// Action Tracking (REP_PLUSGACT) / Investigation (REP_PLUSGINV) helpers
+// ─────────────────────────────────────────────────
+
+const ACT_OS = "rep_plusgact";
+const INV_OS = "rep_plusginv";
+const RELATED_SELECT = "rel.relatedrecord{relatedreckey,relatedrecclass,relatetype,relatedrecwonum}";
+
+const ACT_LIST_FIELDS =
+  "wonum,hse_acttrack_num,description,status,hse_act_pic,hse_act_tl,hse_act_deadline,targcompdate," +
+  "location,bdpocdiscipline,hse_plusgincidentgroup,hse_plusginctype,origrecordid,reportdate,actfinish";
+const ACT_DETAIL_FIELDS =
+  `${ACT_LIST_FIELDS},plusgactionsumm,hse_further_act,hse_root_causes,hse_sub_cause,hse_related_rc,assetnum,failurecode,` +
+  "reportedby,plusgsafmtgenteredbyname,statusdate,actstart,plusgactiontype,plusgactionprior,actcategory,plusgagreedby,reviewer," +
+  `description_longdescription,${RELATED_SELECT}`;
+
+const INV_LIST_FIELDS =
+  "ticketid,hse_reportnumber,description,status,location,bdpocdiscipline,plusgincidentgroup,plusginctype," +
+  "plusginvestlead,hse_facility,hse_psd_type,failurecode,reportdate,affecteddate";
+const INV_DETAIL_FIELDS =
+  `${INV_LIST_FIELDS},hse_rca_rcfa_num,hse_tech_reportnum,assetnum,reportedby,statusdate,hse_inv_startdate,hse_not_comp_date,` +
+  "hse_conseq_event,hse_finding,hse_leftasfound,hse_rca_conduct,hse_rca_recommend,plusgfailmechrem,plusgfailsubdivrem," +
+  "problemcode,fr1code,fr2code,plusgdetectionmethod,plusgbarrierfail,plusghardfailmode,hse_rca_repeat_fair_type," +
+  "hse_duration_shutdown,hse_production_loss,hse_productionimpactcost,hse_lesson_creator,hse_lesson_date," +
+  `plusgmicode,plusgitemnum,description_longdescription,${RELATED_SELECT}`;
+
+/** groupBy option → REP_PLUSGACT column. */
+const ACT_GROUP_COLUMNS = {
+  status: "status",
+  pic: "hse_act_pic",
+  teamLead: "hse_act_tl",
+  discipline: "bdpocdiscipline",
+  incidentGroup: "hse_plusgincidentgroup",
+  severity: "hse_plusginctype",
+  location: "location",
+  subCause: "hse_sub_cause",
+} as const;
+
+/** groupBy option → REP_PLUSGINV column. */
+const INV_GROUP_COLUMNS = {
+  status: "status",
+  discipline: "bdpocdiscipline",
+  incidentGroup: "plusgincidentgroup",
+  severity: "plusginctype",
+  investLead: "plusginvestlead",
+  facility: "hse_facility",
+  location: "location",
+  failureCode: "failurecode",
+  problemCode: "problemcode",
+} as const;
+
+/** Maximo server time zone (Vietnam). */
+const MAXIMO_TZ = "+07:00";
+
+/** Normalise a user date ("2025-01-01" or full ISO) into an OSLC datetime literal. */
+function oslcDate(value: string): string {
+  const v = value.trim();
+  return q(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00${MAXIMO_TZ}` : v);
+}
+
+/** Current time (or now + days) as an OSLC datetime literal in Maximo's time zone. */
+function oslcNow(addDays = 0): string {
+  const t = new Date(Date.now() + addDays * 86_400_000 + 7 * 3_600_000); // shift to +07:00 wall clock
+  return q(`${t.toISOString().slice(0, 19)}${MAXIMO_TZ}`);
+}
+
+/**
+ * Report numbers embed the ticket/wo key as the last segment:
+ * ACT-2026-09-09-H14323957, INV-2023-03-21-H131006, RCA-..., TR-... → the key.
+ */
+function recordKey(id: string): string {
+  const v = id.trim().toUpperCase();
+  return v.includes("-") ? v.slice(v.lastIndexOf("-") + 1) : v;
+}
+
+const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
+
+/** Columns searched by the free-text `query` (OSLC where has no OR, so oslc.searchTerms is used). */
+const ACT_SEARCH_ATTRS = "description,plusgactionsumm,hse_further_act,hse_root_causes";
+const INV_SEARCH_ATTRS = "description,hse_finding,hse_conseq_event";
+
+const searchOf = (terms: string | undefined, attributes: string) => (terms ? { terms, attributes } : undefined);
+
+function actionDeadline(row: MaximoRow): string | undefined {
+  return str(row.hse_act_deadline) ?? str(row.targcompdate);
+}
+
+function isOpenAction(status: unknown): boolean {
+  return (ACT_OPEN_STATUS as readonly string[]).includes(String(status));
+}
+
+/** Investigation the action came from: ORIGINATOR related record, else origrecordid. */
+function originatingInvestigation(row: MaximoRow): string | undefined {
+  const rel = row.relatedrecord?.find((r) => r.relatedrecclass === "INVESTIGATION" && r.relatetype === "ORIGINATOR");
+  return rel?.relatedreckey ?? str(row.origrecordid);
+}
+
+/** Flatten a REP_PLUSGACT row into the shape returned by action tools. */
+function toAction(row: MaximoRow, detail = false) {
+  const deadline = actionDeadline(row);
+  const open = isOpenAction(row.status);
+  const base = {
+    wonum: row.wonum,
+    actionNumber: row.hse_acttrack_num,
+    description: row.description,
+    status: row.status,
+    statusDescription: ACT_STATUS_LABEL[String(row.status)] ?? row.status_description,
+    pic: row.hse_act_pic,
+    teamLead: row.hse_act_tl,
+    deadline,
+    overdue: open && deadline !== undefined && new Date(deadline).getTime() < Date.now() ? true : undefined,
+    location: row.location,
+    discipline: row.bdpocdiscipline,
+    incidentGroup: row.hse_plusgincidentgroup,
+    severity: row.hse_plusginctype,
+    investigationId: originatingInvestigation(row),
+    reportDate: row.reportdate,
+    completedDate: row.actfinish,
+  };
+  if (!detail) return base;
+  return {
+    ...base,
+    actionSummary: row.plusgactionsumm,
+    furtherAction: row.hse_further_act,
+    rootCause: row.hse_root_causes,
+    subCause: row.hse_sub_cause,
+    relatedRootCauseId: row.hse_related_rc,
+    assetnum: row.assetnum,
+    failureCode: row.failurecode,
+    reportedBy: row.reportedby,
+    enteredByName: row.plusgsafmtgenteredbyname,
+    statusDate: row.statusdate,
+    startDate: row.actstart,
+    actionType: row.plusgactiontype,
+    priority: row.plusgactionprior_description ?? row.plusgactionprior,
+    category: row.actcategory,
+    agreedBy: row.plusgagreedby,
+    reviewer: row.reviewer,
+    longDescription: row.description_longdescription,
+  };
+}
+
+/** Flatten a REP_PLUSGINV row into the shape returned by investigation tools. */
+function toInvestigation(row: MaximoRow, detail = false) {
+  const base = {
+    ticketid: row.ticketid,
+    reportNumber: row.hse_reportnumber,
+    description: row.description,
+    status: row.status,
+    statusDescription: INV_STATUS_LABEL[String(row.status)] ?? row.status_description,
+    location: row.location,
+    discipline: row.bdpocdiscipline,
+    incidentGroup: row.plusgincidentgroup,
+    severity: row.plusginctype,
+    investigationLead: row.plusginvestlead,
+    facility: row.hse_facility,
+    shutdownType: row.hse_psd_type,
+    failureCode: row.failurecode,
+    reportDate: row.reportdate,
+    eventDate: row.affecteddate,
+  };
+  if (!detail) return base;
+  return {
+    ...base,
+    rcaNumber: row.hse_rca_rcfa_num,
+    technicalReportNumber: row.hse_tech_reportnum,
+    assetnum: row.assetnum,
+    reportedBy: row.reportedby,
+    statusDate: row.statusdate,
+    investigationStart: row.hse_inv_startdate,
+    consequence: row.hse_conseq_event,
+    finding: row.hse_finding,
+    leftAsFound: row.hse_leftasfound,
+    rcaConducted: row.hse_rca_conduct,
+    rcaRecommendation: row.hse_rca_recommend,
+    failureMechanism: row.plusgfailmechrem,
+    failureSubdivision: row.plusgfailsubdivrem,
+    problemCode: row.problemcode,
+    causeCode: row.fr1code,
+    remedyCode: row.fr2code,
+    detectionMethod: row.plusgdetectionmethod_description ?? row.plusgdetectionmethod,
+    barrierFailed: row.plusgbarrierfail_description ?? row.plusgbarrierfail,
+    hardwareFailureMode: row.plusghardfailmode_description ?? row.plusghardfailmode,
+    repeatFailureType: row.hse_rca_repeat_fair_type,
+    shutdownDuration: row.hse_duration_shutdown,
+    productionLoss: row.hse_production_loss,
+    productionImpactCostUsd: row.hse_productionimpactcost,
+    failedItem: row.plusgitemnum,
+    failedItemInfo: row.plusgmicode,
+    lessonLearnedBy: row.hse_lesson_creator,
+    lessonLearnedDate: row.hse_lesson_date,
+    longDescription: row.description_longdescription,
+  };
+}
+
+/** Build the REP_PLUSGACT where clause shared by search and summarize. */
+function actionWhere(f: ActionFilter): (string | false | undefined)[] {
+  const open = f.openOnly || f.overdue || f.dueWithinDays !== undefined;
+  const statuses = f.status ?? (open ? [...ACT_OPEN_STATUS] : undefined);
+  const inv = f.investigationId && recordKey(f.investigationId);
+  return [
+    `status!="CAN"`,
+    statuses && `status in [${statuses.map(q).join(",")}]`,
+    f.pic && `hse_act_pic=${q(f.pic.toUpperCase())}`,
+    f.teamLead && `hse_act_tl=${q(f.teamLead.toUpperCase())}`,
+    f.discipline && `bdpocdiscipline=${q(f.discipline)}`,
+    f.incidentGroup && `hse_plusgincidentgroup=${q(f.incidentGroup)}`,
+    f.severity && `hse_plusginctype=${q(f.severity)}`,
+    f.location && `location=${like(f.location)}`,
+    inv && `relatedrecord.relatedreckey=${q(inv)}`,
+    f.relatedWonum && `relatedrecord.relatedreckey=${q(f.relatedWonum.toUpperCase())}`,
+    f.reportedAfter && `reportdate>=${oslcDate(f.reportedAfter)}`,
+    f.reportedBefore && `reportdate<${oslcDate(f.reportedBefore)}`,
+    f.overdue && `hse_act_deadline<${oslcNow()}`,
+    f.dueWithinDays !== undefined && `hse_act_deadline>=${oslcNow()} and hse_act_deadline<=${oslcNow(f.dueWithinDays)}`,
+  ];
+}
+
+function investigationWhere(f: SearchInvestigationsInput): (string | false | undefined)[] {
+  return [
+    `status!="CANCELED"`,
+    !f.status && f.openOnly && `status!="CLOSED"`,
+    f.status && `status in [${f.status.map(q).join(",")}]`,
+    f.location && `location=${like(f.location)}`,
+    f.discipline && `bdpocdiscipline=${q(f.discipline)}`,
+    f.incidentGroup && `plusgincidentgroup=${q(f.incidentGroup)}`,
+    f.severity && `plusginctype=${q(f.severity)}`,
+    f.investLead && `plusginvestlead=${q(f.investLead.toUpperCase())}`,
+    f.facility && `hse_facility=${q(f.facility)}`,
+    f.shutdownType && `hse_psd_type=${q(f.shutdownType)}`,
+    f.reportedAfter && `reportdate>=${oslcDate(f.reportedAfter)}`,
+    f.reportedBefore && `reportdate<${oslcDate(f.reportedBefore)}`,
+  ];
+}
+
 export const maximoClient = {
   async fetchMaximo(endpoint: string, params: Record<string, string | number | undefined> = {}) {
     const url = new URL(`${config.baseUrl}${endpoint}`);
@@ -213,6 +454,8 @@ export const maximoClient = {
       "oslc.orderBy": query.orderBy,
       "oslc.pageSize": query.limit,
       pageno: query.pageno || undefined,
+      "oslc.searchTerms": query.search && JSON.stringify(query.search.terms.replace(/"/g, "")),
+      searchAttributes: query.search?.attributes,
     });
     return schema.parse(raw);
   },
@@ -608,6 +851,193 @@ export const maximoClient = {
     return {
       responseInfo: pagingInfo(res.responseInfo),
       member: res.member.map(({ systemid, description, primarysystem }) => ({ systemid, description, primarysystem })),
+    };
+  },
+  // ─────────────────────────────────────────────────
+  // Action Tracking (REP_PLUSGACT) & Investigation (REP_PLUSGINV) methods
+  // ─────────────────────────────────────────────────
+
+  /** Generic server-side group-by count on an object structure, largest group first. */
+  async groupCount<K extends string>(os: string, where: (string | false | undefined)[], columns: Record<K, string>, groupBy: K[], search?: OslcQuery["search"], statusLabels?: Record<string, string>) {
+    const keys = [...new Set(groupBy)];
+    const raw = await this.fetchMaximo(`/api/os/${os}`, {
+      "oslc.where": where.filter(Boolean).join(" and ") || undefined,
+      gbcols: `${keys.map((k) => columns[k]).join(",")},count.*`,
+      gbsortby: "-count.*",
+      "oslc.searchTerms": search && JSON.stringify(search.terms.replace(/"/g, "")),
+      searchAttributes: search?.attributes,
+    });
+    if (!Array.isArray(raw)) throw new Error("Unexpected group-by response from Maximo");
+    const groups = raw.map((row: Record<string, unknown>) => {
+      const g: Record<string, unknown> = {};
+      for (const k of keys) {
+        g[k] = row[columns[k]] ?? "(blank)";
+        const desc = (k === "status" && statusLabels?.[String(g[k])]) || row[`${columns[k]}_description`];
+        if (desc && desc !== g[k]) g[`${k}Description`] = desc;
+      }
+      g.count = Number(row.count ?? 0);
+      return g;
+    });
+    return { groupBy: keys, totalCount: groups.reduce((n, g) => n + (g.count as number), 0), groupCount: groups.length, groups };
+  },
+
+  /**
+   * SCE / PCE label per tag (one mxapioperloc request for all tags).
+   * Returns only critical tags; failures are swallowed (highlighting is best effort).
+   */
+  async criticalLabels(locations: unknown[]): Promise<Map<string, string>> {
+    const tags = [...new Set(locations.map(str).filter((t): t is string => !!t))];
+    const labels = new Map<string, string>();
+    if (tags.length === 0) return labels;
+    try {
+      const res = await this.query("mxapioperloc", {
+        where: [`location in [${tags.map(q).join(",")}]`],
+        select: `location,${LOC_ATTR_FIELDS}`,
+        limit: tags.length,
+      }, OperLocCollectionSchema);
+      for (const loc of res.member) {
+        const label = criticalLabel(loc);
+        if (label) labels.set(loc.location, label);
+      }
+    } catch (e) {
+      console.error("[criticalLabels] lookup failed:", e instanceof Error ? e.message : e);
+    }
+    return labels;
+  },
+
+  /** Attach `critical` (SCE/PCE label) to rows that have a location. */
+  async withCritical<T extends { location?: unknown }>(rows: T[]): Promise<(T & { critical?: string })[]> {
+    const labels = await this.criticalLabels(rows.map((r) => r.location));
+    return rows.map((r) => {
+      const critical = labels.get(String(r.location));
+      return critical ? { ...r, critical } : r;
+    });
+  },
+
+  async searchActionTracking(input: SearchActionTrackingInput) {
+    const { limit = 20, pageno, ...filter } = input;
+    const res = await this.query(ACT_OS, {
+      where: actionWhere(filter),
+      search: searchOf(filter.query, ACT_SEARCH_ATTRS),
+      select: ACT_LIST_FIELDS,
+      orderBy: filter.overdue || filter.dueWithinDays || filter.openOnly ? "+hse_act_deadline" : "-reportdate",
+      limit,
+      pageno,
+    }, RowCollectionSchema);
+    return {
+      responseInfo: pagingInfo(res.responseInfo),
+      member: await this.withCritical(res.member.map((r) => toAction(r))),
+    };
+  },
+
+  async summarizeActionTracking(input: SummarizeActionTrackingInput) {
+    const { groupBy, ...filter } = input;
+    return this.groupCount(ACT_OS, actionWhere(filter), ACT_GROUP_COLUMNS, groupBy, searchOf(filter.query, ACT_SEARCH_ATTRS), ACT_STATUS_LABEL);
+  },
+
+  /** Short summaries of related records, grouped by class (one request per class). */
+  async describeRelatedRecords(related: RelatedRecord[] = []) {
+    const keysOf = (...classes: string[]) =>
+      [...new Set(related.filter((r) => classes.includes(r.relatedrecclass ?? "")).map((r) => r.relatedreckey ?? r.relatedrecwonum).filter((k): k is string => !!k))];
+    const invKeys = keysOf("INVESTIGATION", "INCIDENT");
+    const woKeys = keysOf("WORKORDER");
+    const actKeys = keysOf("ACTTRACK");
+    const byKey = new Map<string, Record<string, unknown>>();
+    await Promise.all([
+      invKeys.length && this.query(INV_OS, { where: [`ticketid in [${invKeys.map(q).join(",")}]`], select: INV_LIST_FIELDS, limit: invKeys.length }, RowCollectionSchema)
+        .then((r) => r.member.forEach((m) => byKey.set(String(m.ticketid), toInvestigation(m)))),
+      woKeys.length && this.query("oslcmxwodetail", { where: [`wonum in [${woKeys.map(q).join(",")}]`], select: "wonum,description,status,worktype,location,actfinish", limit: woKeys.length }, RowCollectionSchema)
+        .then((r) => r.member.forEach((m) => byKey.set(String(m.wonum), { wonum: m.wonum, description: m.description, status: m.status, worktype: m.worktype, location: m.location, completedDate: m.actfinish }))),
+      actKeys.length && this.query(ACT_OS, { where: [`wonum in [${actKeys.map(q).join(",")}]`], select: ACT_LIST_FIELDS, limit: actKeys.length }, RowCollectionSchema)
+        .then((r) => r.member.forEach((m) => byKey.set(String(m.wonum), toAction(m)))),
+    ]);
+    return related.map((r) => {
+      const key = r.relatedreckey ?? r.relatedrecwonum;
+      return { class: r.relatedrecclass, relation: r.relatetype, key, record: key ? byKey.get(key) : undefined };
+    });
+  },
+
+  async getActionTracking(input: GetActionTrackingInput) {
+    const wonum = recordKey(input.id);
+    const res = await this.query(ACT_OS, {
+      where: [`wonum=${q(wonum)}`, `status!="CAN"`],
+      select: ACT_DETAIL_FIELDS,
+      limit: 1,
+    }, RowCollectionSchema);
+    const row = res.member[0];
+    if (!row) throw new Error(`Action ${input.id} not found (or cancelled)`);
+    const [action] = await this.withCritical([toAction(row, true)]);
+    return { ...action, relatedRecords: await this.describeRelatedRecords(row.relatedrecord) };
+  },
+
+  async searchInvestigations(input: SearchInvestigationsInput) {
+    const { groupBy, limit = 20, pageno } = input;
+    const where = investigationWhere(input);
+    const search = searchOf(input.query, INV_SEARCH_ATTRS);
+    if (groupBy) return this.groupCount(INV_OS, where, INV_GROUP_COLUMNS, groupBy, search, INV_STATUS_LABEL);
+    const res = await this.query(INV_OS, { where, search, select: INV_LIST_FIELDS, orderBy: "-reportdate", limit, pageno }, RowCollectionSchema);
+    return {
+      responseInfo: pagingInfo(res.responseInfo),
+      member: await this.withCritical(res.member.map((r) => toInvestigation(r))),
+    };
+  },
+
+  async getInvestigationRow(id: string, select: string) {
+    const ticketid = recordKey(id);
+    const res = await this.query(INV_OS, {
+      where: [`ticketid=${q(ticketid)}`, `status!="CANCELED"`],
+      select,
+      limit: 1,
+    }, RowCollectionSchema);
+    const row = res.member[0];
+    if (!row) throw new Error(`Investigation ${id} not found (or cancelled)`);
+    return row;
+  },
+
+  async getInvestigation(input: GetInvestigationInput) {
+    const row = await this.getInvestigationRow(input.id, INV_DETAIL_FIELDS);
+    const [inv] = await this.withCritical([toInvestigation(row, true)]);
+    const related = await this.describeRelatedRecords(row.relatedrecord);
+    const actions = related.filter((r) => r.class === "ACTTRACK");
+    const open = actions.filter((a) => isOpenAction((a.record as { status?: unknown } | undefined)?.status)).length;
+    return {
+      ...inv,
+      actionSummary: { total: actions.length, open, closed: actions.length - open },
+      relatedRecords: related,
+    };
+  },
+
+  async listActionsByInvestigation(input: ListActionsByInvestigationInput) {
+    const { investigationId, includeClosed = true } = input;
+    const row = await this.getInvestigationRow(investigationId, INV_LIST_FIELDS);
+    const res = await this.query(ACT_OS, {
+      where: [
+        `status!="CAN"`,
+        !includeClosed && `status in [${ACT_OPEN_STATUS.map(q).join(",")}]`,
+        `relatedrecord.relatedreckey=${q(String(row.ticketid))}`,
+      ],
+      select: `${ACT_LIST_FIELDS},plusgactionsumm,hse_root_causes,hse_sub_cause`,
+      orderBy: "+hse_act_deadline",
+      limit: 200,
+    }, RowCollectionSchema);
+    const actions = res.member.map((r) => ({
+      ...toAction(r),
+      actionSummary: r.plusgactionsumm,
+      rootCause: r.hse_root_causes,
+      subCause: r.hse_sub_cause,
+    }));
+    const statusCounts: Record<string, number> = {};
+    for (const a of actions) statusCounts[String(a.status)] = (statusCounts[String(a.status)] ?? 0) + 1;
+    const [investigation] = await this.withCritical([toInvestigation(row)]);
+    return {
+      investigation,
+      summary: {
+        total: actions.length,
+        open: actions.filter((a) => isOpenAction(a.status)).length,
+        overdue: actions.filter((a) => a.overdue).length,
+        byStatus: statusCounts,
+      },
+      actions: await this.withCritical(actions),
     };
   },
 };

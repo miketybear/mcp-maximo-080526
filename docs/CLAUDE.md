@@ -43,7 +43,8 @@ How to add a tool: [adding_tools_guide.md](adding_tools_guide.md). SDK v2 upgrad
 ## Rules
 
 - **OSLC injection:** every user-supplied value in `oslc.where` must go through `q()` (exact) or `like()` (contains) in `maximo-client.ts`. Never interpolate raw strings.
-- **Never return cancelled records:** `CAN` is excluded from status enums and POs always add `status!="CAN"`. Keep it that way.
+- **Never return cancelled records:** `CAN` is excluded from status enums and POs always add `status!="CAN"`. Keep it that way. Same for Action Tracking (`status!="CAN"`) and Investigations (`status!="CANCELED"`).
+- **Action Tracking / Investigations:** object structures `REP_PLUSGACT` (WORKORDER, woclass ACTTRACK, key `wonum`) and `REP_PLUSGINV` (TICKET, class INVESTIGATION, key `ticketid`); most data is in custom `hse_*` fields. Links go through RELATEDRECORD: read with `rel.relatedrecord{...}`, filter with `relatedrecord.relatedreckey=`. OSLC `where` has no `or`: free-text search uses `oslc.searchTerms` + `searchAttributes` (the `search` option of `query()`).
 - POs: results go through `filterLatestApprovedRevisions` (one row per PONUM). Keep this for any new PO query.
 - Keep `oslc.select` lean — only the fields the tool needs. Always `lean=1` (done in `fetchMaximo`).
 - Tool `description` and `.describe()` texts are prompts for the LLM: say when to use / not use the tool, give examples, explain pagination. They matter more than code style.
