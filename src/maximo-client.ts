@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { config } from "./config.js";
 import { ACT_OPEN_STATUS, ACT_STATUS_LABEL, INV_STATUS_LABEL } from "./constants.js";
 import type {
-  SearchWorkOrdersInput, WorkOrderCollection,
+  SearchWorkOrdersInput, WorkOrderCollection, MultiAssetRow,
   SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, PurchaseOrderCollection, PurchaseOrder,
   SearchVendorInput, VendorCollection,
   GetBudgetCodeInput, BudgetCodeCollection,
@@ -504,15 +504,33 @@ export const maximoClient = {
     }, WorkOrderCollectionSchema);
   },
 
-  async getWorkOrder(wonum: string, includeLabor?: boolean, includeMaterial?: boolean, includeTasks?: boolean): Promise<WorkOrderCollection> {
+  async getWorkOrder(wonum: string, includeLabor?: boolean, includeMaterial?: boolean, includeTasks?: boolean, includeMultiAsset?: boolean): Promise<WorkOrderCollection> {
     const select = [
       WO_SELECT_FIELDS_DETAIL,
       includeLabor && "wplabor{laborcode,craft,skilllevel,regularhours,quantity,linecost}",
       includeMaterial && "wpmaterial{itemnum,itemqty,storeloc,description,unitcost,linecost}",
       includeTasks && "woactivity{taskid,description,status,location,estdur}",
+      includeMultiAsset && "multiassetlocci{location,assetnum,isprimary,progress,sequence,location.description}",
     ].filter(Boolean).join(",");
 
-    return this.query("oslcmxwodetail", { where: [`wonum=${q(wonum)}`], select }, WorkOrderCollectionSchema);
+    const res = await this.query("oslcmxwodetail", { where: [`wonum=${q(wonum)}`], select }, WorkOrderCollectionSchema);
+    if (includeMultiAsset) {
+      for (const wo of res.member) {
+        const rows: MultiAssetRow[] = (wo.multiassetlocci ?? []).map((m) => {
+          const loc = m.location;
+          return {
+            location: typeof loc === "string" ? loc : m.$alias_this_attr$location,
+            description: typeof loc === "object" ? loc.description : undefined,
+            assetnum: m.assetnum,
+            isprimary: m.isprimary,
+            progress: m.progress,
+            sequence: m.sequence,
+          };
+        });
+        (wo as Record<string, unknown>).multiassetlocci = await this.withCritical(rows);
+      }
+    }
+    return res;
   },
 
   async searchHistoryWOByTag(location: string, limit: number = 10, pageno?: number): Promise<WorkOrderCollection> {

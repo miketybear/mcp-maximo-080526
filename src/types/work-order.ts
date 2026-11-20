@@ -175,6 +175,32 @@ export const MatUseTransSchema = z.object({
 
 export type MatUseTrans = z.infer<typeof MatUseTransSchema>;
 
+/**
+ * Raw MULTIASSETLOCCI row (Multi Assets, Locations and CIs). Selecting
+ * `location.description` makes Maximo rename the tag to `$alias_this_attr$location`
+ * and turn `location` into `{ description }` — normalised by the client.
+ */
+export const MultiAssetLocCISchema = z.object({
+  multiid: z.number().optional(),
+  assetnum: z.string().optional(),
+  location: z.union([z.string(), z.object({ description: z.string().optional() }).loose()]).optional(),
+  $alias_this_attr$location: z.string().optional(),
+  isprimary: z.boolean().optional(),
+  progress: z.boolean().optional(),
+  sequence: z.number().optional(),
+}).loose();
+
+/** Normalised multi asset row returned by get_work_order. */
+export interface MultiAssetRow {
+  location?: string;
+  description?: string;
+  assetnum?: string;
+  isprimary?: boolean;
+  progress?: boolean;
+  sequence?: number;
+  critical?: string;
+}
+
 /** Zod schema for a single Maximo Work Order record (the fields we select). */
 export const WorkOrderSchema = z.object({
   wonum: z.string(),
@@ -201,6 +227,7 @@ export const WorkOrderSchema = z.object({
   wpmaterial: z.array(WPMaterialSchema).optional(),
   woactivity: z.array(WOActivitySchema).optional(),
   matusetrans: z.array(MatUseTransSchema).optional(),
+  multiassetlocci: z.array(MultiAssetLocCISchema).optional(),
 }).loose();
 
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;

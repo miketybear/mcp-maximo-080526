@@ -9,6 +9,7 @@ export type {
   WorkOrder,
   WorkOrderCollection,
   MatUseTrans,
+  MultiAssetRow,
 } from "./work-order.js";
 
 export {
