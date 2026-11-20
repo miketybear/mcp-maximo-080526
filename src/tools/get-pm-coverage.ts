@@ -18,9 +18,11 @@ export const getPmCoverage = defineTool({
     "(overdue first, then noPlan, then notDue; SCE before PCE within each) and covered (woCount, openCount, lastWo per tag). " +
     "Each tag also has pmPlans: the ACTIVE PMs of that worktype whose location is the tag or whose route has it as a stop " +
     "(frequency, frequnit, lastcompdate, nextdate, nextForecast from PM forecast). A tag with no WO gets planStatus: " +
-    "'overdue' (a plan's due date has passed — real gap), 'noPlan' (no PM covers the tag — check whether it needs one) or " +
+    "'overdue' (an open WO is past its schedfinish, or a plan's due date has passed — real gap), 'noPlan' (no PM covers the tag — check whether it needs one) or " +
     "'notDue' (planned, next date still ahead, e.g. a 24-month PSV route — not a gap). " +
-    "summary has notCoveredOverdue / notCoveredNoPlan / notCoveredNotDue. " +
+    "Any tag (covered or not) with an open WO past schedfinish — searched regardless of period, since PM WOs are " +
+    "generated ahead — gets late=true and lateOpenWos (wonum, status, schedfinish, daysLate); covered tags with late=true come first. " +
+    "summary has notCoveredOverdue / notCoveredNoPlan / notCoveredNotDue / lateOpenCount. " +
     "Always present overdue and noPlan first, then notDue, and highlight SCE 🔴 / PCE 🟡 using each tag's `critical` label. " +
     "Large sub-trees (whole platform) are refused — lower depth, choose a sub-system, or set onlyCritical=true. " +
     "Use get_location_children / search_locations first to find the right parent tag. Cancelled WOs are ignored.",

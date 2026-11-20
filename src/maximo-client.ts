@@ -1007,6 +1007,37 @@ export const maximoClient = {
       }
     }
 
+    // Open WOs past schedfinish, regardless of period: PM WOs are generated ahead
+    // (lead time), so a late one may have been reported before reportedAfter.
+    type Late = { wonum: string; status?: string; schedfinish?: string; daysLate: number; matchedBy: string };
+    const lateByTag = new Map<string, Late[]>();
+    const nowIso = new Date().toISOString();
+    const addLate = (tag: string, wo: WorkOrder, matchedBy: string) => {
+      if (!hits.has(tag) || !wo.schedfinish) return;
+      const list = lateByTag.get(tag) ?? lateByTag.set(tag, []).get(tag)!;
+      if (list.some((l) => l.wonum === wo.wonum)) return;
+      const daysLate = Math.floor((Date.now() - new Date(wo.schedfinish).getTime()) / 86_400_000);
+      list.push({ wonum: wo.wonum, status: wo.status, schedfinish: wo.schedfinish, daysLate, matchedBy });
+    };
+    for (let i = 0; i < names.length; i += CHUNK) {
+      const list = `[${names.slice(i, i + CHUNK).map(q).join(",")}]`;
+      for (const [scope, cond] of [["location", `location in ${list}`], ["multiasset", `multiassetlocci.location in ${list}`]] as const) {
+        const res = await this.query("oslcmxwodetail", {
+          where: [
+            cond, `woclass="WORKORDER"`, `worktype=${q(worktype)}`, `historyflag=0`,
+            `status!="CAN"`, `status!="COMP"`, `status!="CLOSE"`, `status!="CHKCOMP"`,
+            `schedfinish<${q(nowIso.slice(0, 19))}`,
+          ],
+          select: "wonum,status,location,schedfinish,multiassetlocci{location}",
+          orderBy: "+schedfinish", limit: 500,
+        }, WorkOrderCollectionSchema);
+        for (const wo of res.member) {
+          if (scope === "location") addLate(String(wo.location), wo, "location");
+          else for (const m of wo.multiassetlocci ?? []) if (typeof m.location === "string") addLate(m.location, wo, "multiasset");
+        }
+      }
+    }
+
     // Route stops — context only, not coverage. A route WO reaches each stop as a child WO
     // (location) or a Multi Assets row, both counted above; counting by the `route` field
     // would double-count, since child WOs carry the route too.
@@ -1081,6 +1112,7 @@ export const maximoClient = {
     const dueDate = (p: Plan) => p.nextForecast ?? p.nextdate;
     const planStatus = (tag: string): "noPlan" | "overdue" | "notDue" => {
       const plans = plansByTag.get(tag) ?? [];
+      if (lateByTag.has(tag)) return "overdue";
       if (!plans.length) return "noPlan";
       return plans.some((p) => { const d = dueDate(p); return d && d < now; }) ? "overdue" : "notDue";
     };
@@ -1093,6 +1125,7 @@ export const maximoClient = {
         location: t.location, description: t.description, ...(t.critical && { critical: t.critical }),
         woCount: h.count, openCount: h.open, ...(h.last && { lastWo: h.last }),
         ...(h.count === 0 && { planStatus: planStatus(t.location) }),
+        ...(lateByTag.has(t.location) && { late: true, lateOpenWos: lateByTag.get(t.location) }),
         ...(plans.length && { pmPlans: plans }),
         ...(rts.length && { routes: rts.map((route) => ({ route, lastRouteWo: lastRouteWo.get(route) })) }),
       };
@@ -1102,7 +1135,8 @@ export const maximoClient = {
       return (s === "overdue" ? 0 : s === "noPlan" ? 3 : 6) + (t.sce ? 0 : t.pce ? 1 : 2);
     };
     const notCovered = tags.filter((t) => hits.get(t.location)!.count === 0).sort((a, b) => rank(a) - rank(b));
-    const covered = tags.filter((t) => hits.get(t.location)!.count > 0);
+    const covered = tags.filter((t) => hits.get(t.location)!.count > 0)
+      .sort((a, b) => Number(lateByTag.has(b.location)) - Number(lateByTag.has(a.location)) || (a.sce ? 0 : a.pce ? 1 : 2) - (b.sce ? 0 : b.pce ? 1 : 2));
     const countStatus = (s: string) => notCovered.filter((t) => planStatus(t.location) === s).length;
     return {
       location, systemid, depth, worktype, period: { reportedAfter, reportedBefore },
@@ -1116,6 +1150,7 @@ export const maximoClient = {
         notCoveredOverdue: countStatus("overdue"),
         notCoveredNoPlan: countStatus("noPlan"),
         notCoveredNotDue: countStatus("notDue"),
+        lateOpenCount: lateByTag.size,
       },
       ...((truncatedTree || truncatedWos) && {
         truncated: true,
