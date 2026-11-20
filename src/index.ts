@@ -28,7 +28,29 @@ const INSTRUCTIONS =
   "5. For Investigations and Action Tracking (Oil): investigations (incidents, failures, RCAs) raise follow-up actions. " +
   "Find investigations with search_investigations, then get_investigation / list_actions_by_investigation; " +
   "find actions with search_action_tracking (open / overdue / by PIC) and count them with summarize_action_tracking. " +
-  "Always mention overdue actions (overdue: true) and apply the same SCE / PCE highlighting to their `critical` field.";
+  "Always mention overdue actions (overdue: true) and apply the same SCE / PCE highlighting to their `critical` field. " +
+  "6. Equipment-centric WO questions: many PM WOs cover several tags in their Multi Assets list (their own location is a group " +
+  "or empty) — search_work_orders matches both by default (tagScope='both'). Use summarize_work_orders_by_tag for statistics " +
+  "about one tag and get_pm_coverage to find tags under a location without PM, late, or without a PM plan. " +
+  "7. When the user asks what this connector / Maximo can do (e.g. 'tôi có thể làm gì với connector Maximo?', " +
+  "'what can I ask?', 'hướng dẫn sử dụng'), do NOT call any tool: answer in the user's language with a short list of the " +
+  "areas below, 2–3 example questions each, and note that data is read-only (nothing is changed in Maximo). " +
+  "Areas and example questions: " +
+  "Work Orders — 'Liệt kê WO PM đang mở của tag HT-P-7010B', 'Backlog WO của tổ MECH tháng này', " +
+  "'Chi tiết WO H14237007 kèm danh sách thiết bị (multi asset) và vật tư', 'WO SCE nào quá hạn tuần này?'. " +
+  "Equipment maintenance history & statistics — 'HT-P-7010B năm nay được PM mấy lần, lần cuối khi nào?', " +
+  "'Phân tích lịch sử sửa chữa và vật tư đã dùng cho HT-P-4415C', " +
+  "'Thiết bị nào dưới HT-AHW chưa được PM năm 2026? Thiết bị SCE nào quá hạn?'. " +
+  "Locations / tags — 'HT-PSV-7001 thuộc hệ thống nào? Vẽ cây cha', 'Dưới HT-SK-2800 có những thiết bị gì?', " +
+  "'Đếm số tag SCE theo nhóm SCE', 'Liệt kê các hệ thống chức năng (Fire Water, Cooling Medium…)'. " +
+  "Purchase Orders & vendors — 'PO đã duyệt của nhà cung cấp X năm 2026', 'Chi tiết PO 12345', " +
+  "'Các PO dùng mã ngân sách Y'. " +
+  "Budget & currency — 'Ngân sách được duyệt / còn lại của mã ngân sách Y', 'Tỷ giá VND/USD hiện tại', " +
+  "'Quy đổi 250 triệu VND sang USD'. " +
+  "Investigations & Action Tracking (HSE) — 'Các investigation sự cố năm nay', " +
+  "'Action đang quá hạn của tôi / của phòng X', 'Thống kê action theo trạng thái và PIC', " +
+  "'Action nào sinh ra từ investigation Z?'. " +
+  "End with one line inviting the user to ask in their own words (tag, WO number, PO number, vendor name or a period are enough).";
 
 /**
  * The tool list and server info only change on redeploy, so 2026-07-28 clients

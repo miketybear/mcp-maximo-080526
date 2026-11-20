@@ -3,6 +3,8 @@ import type { Tool } from "./define-tool.js";
 import { searchWorkOrders } from "./search-work-orders.js";
 import { getWorkOrder } from "./get-work-order.js";
 import { analyzeWorkOrdersHistoryByTag } from "./analyze-work-orders-history-by-tag.js";
+import { summarizeWorkOrdersByTag } from "./summarize-work-orders-by-tag.js";
+import { getPmCoverage } from "./get-pm-coverage.js";
 import { searchPurchaseOrders } from "./search-purchase-orders.js";
 import { searchPurchaseOrdersByBudget } from "./search-purchase-orders-by-budget.js";
 import { getPurchaseOrder } from "./get-purchase-order.js";
@@ -31,6 +33,8 @@ export const tools: Tool[] = [
   searchWorkOrders,
   getWorkOrder,
   analyzeWorkOrdersHistoryByTag,
+  summarizeWorkOrdersByTag,
+  getPmCoverage,
   searchPurchaseOrders,
   searchPurchaseOrdersByBudget,
   getPurchaseOrder,
