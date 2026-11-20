@@ -3,6 +3,8 @@ export {
   WorkOrderSchema,
   WorkOrderCollectionSchema,
   MatUseTransSchema,
+  TAG_SCOPE,
+  tagScopeSchema,
 } from "./work-order.js";
 export type {
   SearchWorkOrdersInput,
@@ -10,6 +12,7 @@ export type {
   WorkOrderCollection,
   MatUseTrans,
   MultiAssetRow,
+  TagScope,
 } from "./work-order.js";
 
 export {

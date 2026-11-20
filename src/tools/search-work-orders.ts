@@ -7,6 +7,7 @@ import { defineTool } from "./define-tool.js";
  *
  * Filter selection guide:
  *   - location       → use when the user mentions an equipment tag or asset ID (fuzzy match)
+ *   - tagScope       → both (default) also matches the Multi Assets list; result rows carry matchedBy
  *   - description    → use when the user mentions a job description keyword (fuzzy match)
  *   - status         → WAPPR/APPR/INPRG/SCHED/WMATL/CHKCOMP/COMP/CLOSE only; CAN is never valid
  *   - notCompleted   → set to true for 'backlog', 'open', 'not completed', 'outstanding', or 'pending' WO queries
@@ -34,6 +35,9 @@ export const searchWorkOrders = defineTool({
     "work type (worktype), priority (wopriority), scheduled finish date range " +
     "(schedFinishAfter / schedFinishBefore), SCE flag (plusgsafetycrit), PCE flag (plusgcomcrit), " +
     "or WO class (woclass). " +
+    "A tag is matched in the WO location AND in its Multi Assets list by default (tagScope='both'); " +
+    "each row then has matchedBy = location | multiasset | both. " +
+    "For counts / statistics about one tag use summarize_work_orders_by_tag instead. " +
     "Use notCompleted=true to filter for backlog / open / not-completed WOs. " +
     "Do NOT use this tool for Purchase Orders (POs) or Vendors. " +
     "Status CAN (Cancelled) is always excluded automatically — never specify it. " +

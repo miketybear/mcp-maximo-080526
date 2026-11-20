@@ -26,11 +26,24 @@ import { WO_STATUS, WO_DISCIPLINE, WO_WORKTYPE, WO_PRIORITY } from "../constants
  * "next week") to ISO-8601 before passing it as schedFinishAfter / schedFinishBefore.
  */
 
+/** Where to look for an equipment tag on a WO. */
+export const TAG_SCOPE = ["both", "location", "multiasset"] as const;
+export type TagScope = (typeof TAG_SCOPE)[number];
+
+export const tagScopeSchema = z.enum(TAG_SCOPE).default("both").describe(
+  "Where to match the tag: 'both' (default) = the WO's own location OR its Multi Assets list; " +
+  "'location' = WO location only; 'multiasset' = Multi Assets list only. " +
+  "Many PM WOs cover several tags and keep them only in the Multi Assets list (their location is a group " +
+  "such as HT-AHW, or empty), so keep 'both' unless the user asks otherwise. Results carry matchedBy."
+);
+
 export const SearchWorkOrdersInputSchema = {
   location: z.string().optional().describe(
-    "Equipment tag number (partial match). Filters WOs whose location field CONTAINS this value. " +
+    "Equipment tag number (partial match). Filters WOs whose location CONTAINS this value — by default also " +
+    "WOs listing the tag in their Multi Assets list (see tagScope). " +
     "Example: 'HT-PM-4415C'. Use this when the user mentions a specific asset, tag, or equipment ID."
   ),
+  tagScope: tagScopeSchema,
   description: z.string().optional().describe(
     "Keyword to search in the WO short description (partial/fuzzy match). " +
     "Example: 'pump seal replacement'. Use this when the user mentions a job description or subject keyword."
@@ -215,6 +228,7 @@ export const WorkOrderSchema = z.object({
   location: z.string().optional(),
   bdpocdiscipline: z.string().optional(),
   worktype: z.string().optional(),
+  pmnum: z.string().optional(),
   schedstart: z.string().optional(),
   schedfinish: z.string().optional(),
   actstart: z.string().optional(),

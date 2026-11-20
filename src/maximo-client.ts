@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { config } from "./config.js";
 import { ACT_OPEN_STATUS, ACT_STATUS_LABEL, INV_STATUS_LABEL } from "./constants.js";
 import type {
-  SearchWorkOrdersInput, WorkOrderCollection, MultiAssetRow,
+  SearchWorkOrdersInput, WorkOrderCollection, MultiAssetRow, TagScope, WorkOrder,
   SearchPurchaseOrdersInput, SearchPurchaseOrdersByBudgetInput, PurchaseOrderCollection, PurchaseOrder,
   SearchVendorInput, VendorCollection,
   GetBudgetCodeInput, BudgetCodeCollection,
@@ -464,11 +464,45 @@ export const maximoClient = {
   // Work Order methods (oslcmxwodetail)
   // ─────────────────────────────────────────────────
 
-  async searchWorkOrders(input: SearchWorkOrdersInput): Promise<WorkOrderCollection> {
+  /**
+   * Run one WO query per tag scope and merge by wonum. A tag can sit in the WO's own
+   * `location` or in its Multi Assets list (MULTIASSETLOCCI); OSLC has no `or`, so
+   * scope "both" = two queries. Each row gets `matchedBy`.
+   */
+  async queryWorkOrdersByTag(
+    tag: string, scope: TagScope, exact: boolean,
+    query: Omit<OslcQuery, "orderBy">,
+  ): Promise<{ member: (WorkOrder & { matchedBy: string })[]; countByScope: Record<string, number>; totalPages: number }> {
+    const v = exact ? q(tag) : like(tag);
+    const conds: [string, string][] = [];
+    if (scope !== "multiasset") conds.push(["location", `location=${v}`]);
+    if (scope !== "location") conds.push(["multiasset", `multiassetlocci.location=${v}`]);
+
+    const results = await Promise.all(conds.map(([, cond]) =>
+      this.query("oslcmxwodetail", { ...query, where: [cond, ...(query.where ?? [])], orderBy: "-reportdate" }, WorkOrderCollectionSchema)));
+
+    const merged = new Map<string, WorkOrder & { matchedBy: string }>();
+    const countByScope: Record<string, number> = {};
+    let totalPages = 0;
+    results.forEach((res, i) => {
+      const source = conds[i][0];
+      countByScope[source] = res.responseInfo?.totalCount ?? res.member.length;
+      totalPages = Math.max(totalPages, res.responseInfo?.totalPages ?? 1);
+      for (const wo of res.member) {
+        const prev = merged.get(wo.wonum);
+        merged.set(wo.wonum, prev ? { ...prev, matchedBy: "both" } : { ...wo, matchedBy: source });
+      }
+    });
+    const member = [...merged.values()].sort((a, b) => String(b.reportdate ?? "").localeCompare(String(a.reportdate ?? "")));
+    return { member, countByScope, totalPages };
+  },
+
+  async searchWorkOrders(input: SearchWorkOrdersInput): Promise<unknown> {
     const {
       location, description, status, siteid, bdpocdiscipline,
       worktype, wopriority, schedFinishAfter, schedFinishBefore, limit = 10,
       plusgsafetycrit, plusgcomcrit, woclass = "WORKORDER", pageno, parent, notCompleted,
+      tagScope = "both",
     } = input;
 
     // Parent filter: 'null' → top-level WOs only, 'notnull' → child WOs only,
@@ -480,9 +514,8 @@ export const maximoClient = {
       : parent === "notnull" ? `parent="*"`
       : `parent=${q(parent)}`;
 
-    return this.query("oslcmxwodetail", {
-      where: [
-        location && `location=${like(location)}`,
+    const where = [
+        `status!="CAN"`,
         description && `description=${like(description)}`,
         status && `status=${q(status)}`,
         // notCompleted=true → exclude all completed/closed statuses (backlog / open WOs)
@@ -497,11 +530,25 @@ export const maximoClient = {
         plusgcomcrit !== undefined && `plusgcomcrit=${plusgcomcrit ? 1 : 0}`,
         woclass && `woclass=${q(woclass)}`,
         parentCondition,
-      ],
-      select: WO_SELECT_FIELDS,
-      limit,
-      pageno,
-    }, WorkOrderCollectionSchema);
+    ];
+    const select = `${WO_SELECT_FIELDS},reportdate`;
+
+    if (!location) {
+      return this.query("oslcmxwodetail", { where, select, limit, pageno }, WorkOrderCollectionSchema);
+    }
+    const res = await this.queryWorkOrdersByTag(location, tagScope, false, { where, select, limit, pageno });
+    return {
+      member: res.member,
+      responseInfo: {
+        pagenum: pageno ?? 1,
+        totalPages: res.totalPages,
+        totalCountByScope: res.countByScope,
+        ...(tagScope === "both" && {
+          note: "Two queries merged (location + multi asset): each page may hold up to 2×limit WOs; " +
+            "a WO found by both has matchedBy='both'. Sum of totalCountByScope may double-count those.",
+        }),
+      },
+    };
   },
 
   async getWorkOrder(wonum: string, includeLabor?: boolean, includeMaterial?: boolean, includeTasks?: boolean, includeMultiAsset?: boolean): Promise<WorkOrderCollection> {
@@ -533,13 +580,90 @@ export const maximoClient = {
     return res;
   },
 
-  async searchHistoryWOByTag(location: string, limit: number = 10, pageno?: number): Promise<WorkOrderCollection> {
-    return this.query("oslcmxwodetail", {
-      where: [`location=${like(location)}`, `woclass="WORKORDER"`, `status in ["COMP","CLOSE"]`],
-      select: "wonum,description,matusetrans{itemnum,description,issuetype,positivequantity}",
+  async searchHistoryWOByTag(location: string, limit: number = 10, pageno?: number, tagScope: TagScope = "both"): Promise<unknown> {
+    const res = await this.queryWorkOrdersByTag(location, tagScope, false, {
+      where: [`woclass="WORKORDER"`, `status in ["COMP","CLOSE"]`],
+      select: "wonum,description,reportdate,matusetrans{itemnum,description,issuetype,positivequantity}",
       limit,
       pageno,
-    }, WorkOrderCollectionSchema);
+    });
+    return { member: res.member, responseInfo: { pagenum: pageno ?? 1, totalPages: res.totalPages, totalCountByScope: res.countByScope } };
+  },
+
+  /**
+   * Maintenance statistics for one tag across WOs that name it in `location` and/or in
+   * the Multi Assets list. Pages through up to SUMMARY_MAX_ROWS rows per scope.
+   */
+  async summarizeWorkOrdersByTag(input: {
+    tag: string; tagScope?: TagScope; worktype?: string; reportedAfter?: string; reportedBefore?: string;
+  }): Promise<Record<string, unknown>> {
+    const { tag, tagScope = "both", worktype, reportedAfter, reportedBefore } = input;
+    const PAGE = 500, SUMMARY_MAX_ROWS = 2000;
+    const where = [
+      `woclass="WORKORDER"`,
+      `status!="CAN"`,
+      worktype && `worktype=${q(worktype)}`,
+      reportedAfter && `reportdate>=${oslcDate(reportedAfter)}`,
+      reportedBefore && `reportdate<${oslcDate(reportedBefore)}`,
+    ];
+    const select = "wonum,description,status,worktype,pmnum,reportdate,schedfinish,actfinish";
+
+    const rows = new Map<string, WorkOrder & { matchedBy: string }>();
+    const countByScope: Record<string, number> = {};
+    let truncated = false;
+    for (let pageno = 1; ; pageno++) {
+      const res = await this.queryWorkOrdersByTag(tag, tagScope, true, { where, select, limit: PAGE, pageno });
+      if (pageno === 1) Object.assign(countByScope, res.countByScope);
+      for (const wo of res.member) {
+        const prev = rows.get(wo.wonum);
+        rows.set(wo.wonum, prev && prev.matchedBy !== wo.matchedBy ? { ...prev, matchedBy: "both" } : wo);
+      }
+      if (pageno >= res.totalPages) break;
+      if (pageno * PAGE >= SUMMARY_MAX_ROWS) { truncated = true; break; }
+    }
+
+    const all = [...rows.values()];
+    const done = new Set(["COMP", "CLOSE", "CHKCOMP"]);
+    const inc = (o: Record<string, number>, k: unknown) => { const key = String(k ?? "(none)"); o[key] = (o[key] ?? 0) + 1; };
+    const byWorktype: Record<string, number> = {}, byStatus: Record<string, number> = {}, matchedBy: Record<string, number> = {};
+    const byYear: Record<string, Record<string, number>> = {};
+    const byPm: Record<string, number> = {};
+    for (const wo of all) {
+      inc(byWorktype, wo.worktype);
+      inc(byStatus, wo.status);
+      inc(matchedBy, wo.matchedBy);
+      const year = String(wo.reportdate ?? "").slice(0, 4) || "(none)";
+      inc((byYear[year] ??= {}), wo.worktype);
+      if (wo.pmnum) inc(byPm, wo.pmnum);
+    }
+    const brief = (wo: WorkOrder & { matchedBy: string }) => ({
+      wonum: wo.wonum, worktype: wo.worktype, status: wo.status, pmnum: wo.pmnum,
+      schedfinish: wo.schedfinish, actfinish: wo.actfinish, description: wo.description, matchedBy: wo.matchedBy,
+    });
+    const byActfinish = (a: WorkOrder, b: WorkOrder) => String(b.actfinish ?? "").localeCompare(String(a.actfinish ?? ""));
+    const completed = all.filter((wo) => done.has(String(wo.status)) && wo.actfinish).sort(byActfinish);
+    const open = all.filter((wo) => !done.has(String(wo.status)))
+      .sort((a, b) => String(a.schedfinish ?? "9999").localeCompare(String(b.schedfinish ?? "9999")));
+
+    const critical = (await this.criticalLabels([tag])).get(tag);
+    return {
+      tag,
+      ...(critical && { critical }),
+      tagScope,
+      filters: { worktype, reportedAfter, reportedBefore },
+      totalCount: all.length,
+      ...(truncated && { truncated: true, note: `Only the latest ${SUMMARY_MAX_ROWS} WOs per scope were counted — narrow the date range.` }),
+      totalCountByScope: countByScope,
+      matchedBy,
+      byWorktype,
+      byStatus,
+      byYear: Object.fromEntries(Object.entries(byYear).sort(([a], [b]) => b.localeCompare(a))),
+      byPmnum: Object.fromEntries(Object.entries(byPm).sort(([, a], [, b]) => b - a).slice(0, 10)),
+      lastCompletedPM: completed.find((wo) => wo.worktype === "PM") && brief(completed.find((wo) => wo.worktype === "PM")!),
+      lastCompleted: completed[0] && brief(completed[0]),
+      openCount: open.length,
+      openWorkOrders: open.slice(0, 20).map(brief),
+    };
   },
 
   // ─────────────────────────────────────────────────
@@ -813,6 +937,193 @@ export const maximoClient = {
     };
     await expand(root, 1);
     return { tree: renderTree(root), legend: TREE_LEGEND, root };
+  },
+
+  /**
+   * PM coverage of a location sub-tree: for every tag under `location` (up to `depth`
+   * levels), count WOs of `worktype` reported in the period whose own location is the tag
+   * OR that list it in their Multi Assets list. Tags with no WO are "not covered".
+   */
+  async getPmCoverage(input: {
+    location: string; systemid?: string; depth?: number; worktype?: string;
+    reportedAfter: string; reportedBefore?: string; onlyCritical?: boolean;
+  }): Promise<Record<string, unknown>> {
+    const { location, systemid = "PRIMARY", depth = 2, worktype = "PM", reportedAfter, reportedBefore, onlyCritical } = input;
+    const MAX_TAGS = 400, CHUNK = 80, PAGE = 500, MAX_PAGES = 6;
+
+    const { root } = await this.getLocationChildren({ location, systemid, depth, limit: 200, includeDecommissioned: false });
+    const nodes: LocationNode[] = [];
+    let truncatedTree = false;
+    const walk = (n: LocationNode) => {
+      nodes.push(n);
+      if (n.childrenTruncated) truncatedTree = true;
+      n.children?.forEach(walk);
+    };
+    walk(root);
+    let tags = nodes.filter((n) => !onlyCritical || n.critical);
+    if (tags.length > MAX_TAGS) throw new Error(`${tags.length} tags under ${location} — too many; lower depth, pick a sub-system or set onlyCritical=true`);
+
+    type Hit = { count: number; open: number; last?: { wonum: string; status?: string; reportdate?: string; actfinish?: string; matchedBy: string } };
+    const hits = new Map<string, Hit>(tags.map((t) => [t.location, { count: 0, open: 0 }]));
+    const seen = new Map<string, Set<string>>(); // tag → wonums (dedupe location + multiasset)
+    const done = new Set(["COMP", "CLOSE", "CHKCOMP"]);
+    const base = [
+      `woclass="WORKORDER"`, `status!="CAN"`, `worktype=${q(worktype)}`,
+      `reportdate>=${oslcDate(reportedAfter)}`,
+      reportedBefore && `reportdate<${oslcDate(reportedBefore)}`,
+    ];
+    let truncatedWos = false;
+    const record = (tag: string, wo: WorkOrder, matchedBy: string) => {
+      const hit = hits.get(tag);
+      if (!hit) return;
+      const s = seen.get(tag) ?? new Set<string>();
+      seen.set(tag, s);
+      if (s.has(wo.wonum)) return;
+      s.add(wo.wonum);
+      hit.count++;
+      if (!done.has(String(wo.status))) hit.open++;
+      if (!hit.last || String(wo.reportdate ?? "") > String(hit.last.reportdate ?? "")) {
+        hit.last = { wonum: wo.wonum, status: wo.status, reportdate: wo.reportdate, actfinish: wo.actfinish, matchedBy };
+      }
+    };
+
+    const names = tags.map((t) => t.location);
+    for (let i = 0; i < names.length; i += CHUNK) {
+      const list = `[${names.slice(i, i + CHUNK).map(q).join(",")}]`;
+      for (const [scope, cond] of [["location", `location in ${list}`], ["multiasset", `multiassetlocci.location in ${list}`]] as const) {
+        for (let pageno = 1; ; pageno++) {
+          const res = await this.query("oslcmxwodetail", {
+            where: [cond, ...base],
+            select: "wonum,status,location,reportdate,actfinish,multiassetlocci{location}",
+            orderBy: "-reportdate", limit: PAGE, pageno,
+          }, WorkOrderCollectionSchema);
+          for (const wo of res.member) {
+            if (scope === "location") record(String(wo.location), wo, "location");
+            else for (const m of wo.multiassetlocci ?? []) if (typeof m.location === "string") record(m.location, wo, "multiasset");
+          }
+          if (pageno >= (res.responseInfo?.totalPages ?? 1)) break;
+          if (pageno >= MAX_PAGES) { truncatedWos = true; break; }
+        }
+      }
+    }
+
+    // Route stops — context only, not coverage. A route WO reaches each stop as a child WO
+    // (location) or a Multi Assets row, both counted above; counting by the `route` field
+    // would double-count, since child WOs carry the route too.
+    const routesByTag = new Map<string, Set<string>>();
+    const tagsByRoute = new Map<string, string[]>();
+    for (let i = 0; i < names.length; i += CHUNK) {
+      const list = `[${names.slice(i, i + CHUNK).map(q).join(",")}]`;
+      const res = await this.query("mxapiroutes", {
+        where: [`route_stop.location in ${list}`],
+        select: "route,description,route_stop{location}",
+        limit: 500,
+      }, RowCollectionSchema);
+      for (const r of res.member) {
+        const route = str(r.route);
+        if (!route) continue;
+        const stops = Array.isArray(r.route_stop) ? r.route_stop : [];
+        for (const s of stops) {
+          const tag = str((s as Record<string, unknown>).location);
+          if (!tag || !hits.has(tag)) continue;
+          (routesByTag.get(tag) ?? routesByTag.set(tag, new Set()).get(tag)!).add(route);
+          (tagsByRoute.get(route) ?? tagsByRoute.set(route, []).get(route)!).push(tag);
+        }
+      }
+    }
+    const routes = [...tagsByRoute.keys()];
+    const lastRouteWo = new Map<string, { wonum: string; status?: string; reportdate?: string }>();
+    for (let i = 0; i < routes.length; i += CHUNK) {
+      const list = `[${routes.slice(i, i + CHUNK).map(q).join(",")}]`;
+      // Latest WO of each route regardless of period (helps explain long-interval routes).
+      const last = await this.query("oslcmxwodetail", {
+        where: [`route in ${list}`, `woclass="WORKORDER"`, `status!="CAN"`],
+        select: "wonum,status,route,reportdate",
+        orderBy: "-reportdate", limit: 1000,
+      }, WorkOrderCollectionSchema);
+      for (const wo of last.member) {
+        const r = String(wo.route);
+        if (!lastRouteWo.has(r)) lastRouteWo.set(r, { wonum: wo.wonum, status: wo.status, reportdate: wo.reportdate });
+      }
+    }
+
+    // Active PM plans covering each tag (PM.location = tag, or PM.route has the tag as a stop),
+    // with the next forecast date (PMFORECAST, via rel.pmforecast — not in the mxapipm OS).
+    type Plan = { pmnum: string; description?: string; via: string; frequency?: number; frequnit?: string; lastcompdate?: string; nextdate?: string; nextForecast?: string };
+    const plansByTag = new Map<string, Plan[]>();
+    const now = new Date().toISOString();
+    const pmSelect = "pmnum,description,location,route,frequency,frequnit,lastcompdate,nextdate,rel.pmforecast{forecastdate}";
+    const addPlan = (tag: string, pm: Record<string, unknown>, via: string) => {
+      if (!hits.has(tag)) return;
+      const list = plansByTag.get(tag) ?? plansByTag.set(tag, []).get(tag)!;
+      if (list.some((p) => p.pmnum === pm.pmnum)) return;
+      const forecasts = (Array.isArray(pm.pmforecast) ? pm.pmforecast : [])
+        .map((x) => str((x as Record<string, unknown>).forecastdate)).filter((d): d is string => !!d && d >= now.slice(0, 10)).sort();
+      list.push({
+        pmnum: String(pm.pmnum), description: str(pm.description), via,
+        frequency: typeof pm.frequency === "number" ? pm.frequency : undefined, frequnit: str(pm.frequnit),
+        lastcompdate: str(pm.lastcompdate), nextdate: str(pm.nextdate), nextForecast: forecasts[0],
+      });
+    };
+    const pmQueries: [string[], string, (pm: Record<string, unknown>) => void][] = [
+      [names, "location", (pm) => addPlan(String(pm.location), pm, "location")],
+      [routes, "route", (pm) => { for (const tag of tagsByRoute.get(String(pm.route)) ?? []) addPlan(tag, pm, `route ${pm.route}`); }],
+    ];
+    for (const [values, field, apply] of pmQueries) {
+      for (let i = 0; i < values.length; i += CHUNK) {
+        const res = await this.query("mxapipm", {
+          where: [`${field} in [${values.slice(i, i + CHUNK).map(q).join(",")}]`, `status="ACTIVE"`, `worktype=${q(worktype)}`],
+          select: pmSelect, limit: 500,
+        }, RowCollectionSchema);
+        res.member.forEach(apply);
+      }
+    }
+    const dueDate = (p: Plan) => p.nextForecast ?? p.nextdate;
+    const planStatus = (tag: string): "noPlan" | "overdue" | "notDue" => {
+      const plans = plansByTag.get(tag) ?? [];
+      if (!plans.length) return "noPlan";
+      return plans.some((p) => { const d = dueDate(p); return d && d < now; }) ? "overdue" : "notDue";
+    };
+
+    const row = (t: LocationNode) => {
+      const h = hits.get(t.location)!;
+      const rts = [...(routesByTag.get(t.location) ?? [])];
+      const plans = plansByTag.get(t.location) ?? [];
+      return {
+        location: t.location, description: t.description, ...(t.critical && { critical: t.critical }),
+        woCount: h.count, openCount: h.open, ...(h.last && { lastWo: h.last }),
+        ...(h.count === 0 && { planStatus: planStatus(t.location) }),
+        ...(plans.length && { pmPlans: plans }),
+        ...(rts.length && { routes: rts.map((route) => ({ route, lastRouteWo: lastRouteWo.get(route) })) }),
+      };
+    };
+    const rank = (t: LocationNode) => {
+      const s = planStatus(t.location);
+      return (s === "overdue" ? 0 : s === "noPlan" ? 3 : 6) + (t.sce ? 0 : t.pce ? 1 : 2);
+    };
+    const notCovered = tags.filter((t) => hits.get(t.location)!.count === 0).sort((a, b) => rank(a) - rank(b));
+    const covered = tags.filter((t) => hits.get(t.location)!.count > 0);
+    const countStatus = (s: string) => notCovered.filter((t) => planStatus(t.location) === s).length;
+    return {
+      location, systemid, depth, worktype, period: { reportedAfter, reportedBefore },
+      ...(onlyCritical && { onlyCritical }),
+      summary: {
+        tagCount: tags.length,
+        coveredCount: covered.length,
+        notCoveredCount: notCovered.length,
+        notCoveredSce: notCovered.filter((t) => t.sce).length,
+        notCoveredPce: notCovered.filter((t) => t.pce).length,
+        notCoveredOverdue: countStatus("overdue"),
+        notCoveredNoPlan: countStatus("noPlan"),
+        notCoveredNotDue: countStatus("notDue"),
+      },
+      ...((truncatedTree || truncatedWos) && {
+        truncated: true,
+        note: truncatedTree ? "Some parents have more than 200 children; not all tags were checked." : "Too many WOs; counts may be low — shorten the period.",
+      }),
+      notCovered: notCovered.map(row),
+      covered: covered.map(row),
+    };
   },
 
   async getLocationAncestors(input: GetLocationAncestorsInput): Promise<{ location: string; systemid: string; tree: string; legend: string; path: LocationNode[] }> {
