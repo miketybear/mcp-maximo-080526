@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname } from "path";
 import { config } from "./config.js";
@@ -37,8 +37,41 @@ export interface ClientRegistration {
    * Public MCP clients using PKCE set this to "none".
    */
   token_endpoint_auth_method: string;
+  /**
+   * SHA-256 (hex) of the client_secret issued to confidential clients
+   * (client_secret_post / client_secret_basic, e.g. Teams / M365 Copilot).
+   * The plaintext secret is returned once by /register and never stored.
+   * Absent for public PKCE clients and for registrations made before secrets
+   * were issued — /token skips the secret check for those.
+   */
+  client_secret_hash?: string;
   /** Unix timestamp (ms) of when this client was registered. */
   created_at: number;
+}
+
+const hashSecret = (secret: string): string => createHash("sha256").update(secret, "utf8").digest("hex");
+
+/**
+ * Result of checking the client credentials presented at /token.
+ * Only registrations that hold a client_secret_hash are checked.
+ */
+export type ClientAuthResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Verify the client_secret presented at /token for a DCR-issued client_id.
+ * Unknown client_ids are left to the caller (the proxy client_id and legacy
+ * flows are accepted there).
+ */
+export function verifyClientSecret(clientId: string, secret: string | undefined): ClientAuthResult {
+  const registration = clientStore.get(clientId);
+  if (!registration?.client_secret_hash) return { ok: true };
+  if (!secret) return { ok: false, reason: "client_secret is required for this client." };
+  const expected = Buffer.from(registration.client_secret_hash, "hex");
+  const actual = Buffer.from(hashSecret(secret), "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    return { ok: false, reason: "Invalid client_secret." };
+  }
+  return { ok: true };
 }
 
 /** DCR client_id → registration metadata, mirrored to config.dcrStorePath on disk. */
@@ -140,12 +173,27 @@ export function handleRegistration(rawBody: unknown): {
       ? (body.response_types as string[])
       : ["code"];
 
-  const tokenEndpointAuthMethod =
-    typeof body.token_endpoint_auth_method === "string"
-      ? body.token_endpoint_auth_method
-      : "none";
+  // RFC 7591 §2: when omitted, token_endpoint_auth_method defaults to
+  // "client_secret_basic". Public PKCE clients (Claude, ChatGPT) send "none"
+  // explicitly and get no secret. Everything else is a confidential client
+  // (Teams / M365 Copilot Plugin Vault rejects a response without client_secret).
+  const requestedAuthMethod =
+    typeof body.token_endpoint_auth_method === "string" ? body.token_endpoint_auth_method : undefined;
+  const tokenEndpointAuthMethod = requestedAuthMethod ?? "client_secret_basic";
+  if (!["none", "client_secret_post", "client_secret_basic"].includes(tokenEndpointAuthMethod)) {
+    return {
+      status: 400,
+      body: {
+        error: "invalid_client_metadata",
+        error_description: `Unsupported token_endpoint_auth_method "${tokenEndpointAuthMethod}". Use none, client_secret_post or client_secret_basic.`,
+      },
+    };
+  }
+  const isConfidential = tokenEndpointAuthMethod !== "none";
+  const clientSecret = isConfidential ? randomBytes(32).toString("base64url") : undefined;
 
   const clientId = randomUUID();
+  const issuedAt = Date.now();
 
   const registration: ClientRegistration = {
     client_id: clientId,
@@ -154,14 +202,15 @@ export function handleRegistration(rawBody: unknown): {
     grant_types: grantTypes,
     response_types: responseTypes,
     token_endpoint_auth_method: tokenEndpointAuthMethod,
-    created_at: Date.now(),
+    client_secret_hash: clientSecret ? hashSecret(clientSecret) : undefined,
+    created_at: issuedAt,
   };
 
   clientStore.set(clientId, registration);
   persistStore();
 
   console.log(
-    `[dcr] Registered new client: client_id=${clientId} name="${registration.client_name ?? "(unnamed)"}" redirect_uris=${JSON.stringify(registration.redirect_uris)}`
+    `[dcr] Registered new client: client_id=${clientId} name="${registration.client_name ?? "(unnamed)"}" auth_method=${tokenEndpointAuthMethod}${requestedAuthMethod ? "" : " (defaulted)"} secret_issued=${isConfidential} redirect_uris=${JSON.stringify(registration.redirect_uris)}`
   );
 
   // RFC 7591 §3.2.1 — successful response
@@ -169,6 +218,9 @@ export function handleRegistration(rawBody: unknown): {
     status: 201,
     body: {
       client_id: registration.client_id,
+      client_id_issued_at: Math.floor(issuedAt / 1000),
+      // RFC 7591 §3.2.1: client_secret_expires_at is REQUIRED when a secret is issued (0 = never).
+      ...(clientSecret ? { client_secret: clientSecret, client_secret_expires_at: 0 } : {}),
       client_name: registration.client_name,
       redirect_uris: registration.redirect_uris,
       grant_types: registration.grant_types,

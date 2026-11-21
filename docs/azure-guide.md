@@ -180,7 +180,11 @@ Because all MCP clients share the underlying proxy client app registration, you 
 | :--- | :--- |
 | Claude Desktop / claude.ai | `https://claude.ai/api/mcp/auth_callback` |
 | ChatGPT | `https://chatgpt.com/connector_platform_oauth_redirect` or the per-connector URL ChatGPT shows (see ChatGPT section) |
+| Teams / M365 Copilot (Agents Toolkit `dcr/register`) | `https://teams.microsoft.com/api/platform/v1.0/oAuthRedirect` (if sign-in fails with `AADSTS50011`, register the exact `redirect_uri` from the error) |
 | Cursor | (check Cursor documentation) |
+
+> [!NOTE]
+> Teams / M365 Copilot registers as a **confidential** client: `/register` issues it a `client_secret` (stored as a hash in `DCR_STORE_PATH`) and `/token` checks that secret before proxying. Claude and ChatGPT register with `token_endpoint_auth_method: "none"` (public client + PKCE) and get no secret.
 
 5. Click **Save**.
 
