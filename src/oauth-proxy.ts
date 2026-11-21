@@ -1,6 +1,32 @@
 import express from "express";
 import { config } from "./config.js";
-import { handleRegistration, lookupClient } from "./dcr.js";
+import { handleRegistration, lookupClient, verifyClientSecret } from "./dcr.js";
+
+/**
+ * Extract client credentials from a /token request: HTTP Basic header first
+ * (client_secret_basic, components form-urlencoded per RFC 6749 §2.3.1), then
+ * the body (client_secret_post, or a public client's bare client_id).
+ */
+function readClientCredentials(
+  authorization: string | undefined,
+  body: URLSearchParams,
+): { clientId?: string; clientSecret?: string } {
+  if (authorization?.toLowerCase().startsWith("basic ")) {
+    const decoded = Buffer.from(authorization.slice(6).trim(), "base64").toString("utf8");
+    const sep = decoded.indexOf(":");
+    if (sep > 0) {
+      const decode = (v: string) => {
+        try {
+          return decodeURIComponent(v.replace(/\+/g, " "));
+        } catch {
+          return v;
+        }
+      };
+      return { clientId: decode(decoded.slice(0, sep)), clientSecret: decode(decoded.slice(sep + 1)) };
+    }
+  }
+  return { clientId: body.get("client_id") ?? undefined, clientSecret: body.get("client_secret") ?? undefined };
+}
 
 // ---------------------------------------------------------------------------
 // CORS middleware for OAuth / DCR endpoints
@@ -116,6 +142,20 @@ export function mountOAuthProxy(app: express.Express): void {
   app.post("/token", oauthCorsMiddleware, async (req, res) => {
     try {
       const bodyParams = new URLSearchParams(req.body as Record<string, string>);
+
+      // Authenticate confidential DCR clients (Teams / M365 Copilot) before
+      // proxying. Credentials come from HTTP Basic (RFC 6749 §2.3.1, values
+      // form-urlencoded) or from the body (client_secret_post).
+      const { clientId, clientSecret } = readClientCredentials(req.headers.authorization, bodyParams);
+      if (clientId && clientId !== proxyClientId) {
+        const check = verifyClientSecret(clientId, clientSecret);
+        if (!check.ok) {
+          console.warn(`[auth] Rejected token request for DCR client_id=${clientId}: ${check.reason}`);
+          res.setHeader("WWW-Authenticate", 'Basic realm="token"');
+          res.status(401).json({ error: "invalid_client", error_description: check.reason });
+          return;
+        }
+      }
 
       // Entra ID must see the real proxy client credentials, not the DCR ones.
       bodyParams.set("client_id", proxyClientId);

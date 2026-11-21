@@ -63,6 +63,7 @@ How to add a tool: [adding_tools_guide.md](adding_tools_guide.md). SDK v2 upgrad
 - Token-shaped failures (bad claims/signature/kid/alg) must return **401**, not 500 — clients only re-auth on 401.
 - OAuth endpoints need CORS incl. `OPTIONS` preflight (`app.options(...)` in `oauth-proxy.ts`).
 - DCR registrations must persist across restarts (`data/` volume in docker-compose).
+- `/register` issues a `client_secret` (+ `client_secret_expires_at: 0`) unless the client sends `token_endpoint_auth_method: "none"`; omitted defaults to `client_secret_basic` (RFC 7591). Teams / M365 Copilot rejects a response without `client_secret`; Claude and ChatGPT send `"none"`. Only the SHA-256 hash is stored. `/token` checks the secret (Basic or body) only for registrations that have a hash, and returns 401 `invalid_client` on failure.
 
 ## Deployment
 
